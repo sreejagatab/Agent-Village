@@ -1,0 +1,1536 @@
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
+  <img src="https://img.shields.io/badge/Version-0.1.0-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
+</p>
+
+<h1 align="center">🏘️ Agent Village</h1>
+
+<p align="center">
+  <strong>A Production-Grade Multi-Agent Orchestration System</strong>
+</p>
+
+<p align="center">
+  Intelligent agent coordination with safety-first design, hierarchical memory, and enterprise-ready deployment
+</p>
+
+---
+
+## 📑 Table of Contents
+
+- [Overview](#-overview)
+- [Key Features](#-key-features)
+- [Architecture](#-architecture)
+  - [System Architecture](#system-architecture)
+  - [Execution Flow](#execution-flow)
+  - [State Machine](#state-machine)
+- [Agent System](#-agent-system)
+  - [Agent Types](#agent-types)
+  - [Agent Lifecycle](#agent-lifecycle)
+  - [Agent Communication](#agent-communication)
+- [Memory System](#-memory-system)
+  - [Memory Types](#memory-types)
+  - [Memory Architecture](#memory-architecture)
+- [Safety & Governance](#-safety--governance)
+  - [Safety Limits](#safety-limits)
+  - [Approval Gates](#approval-gates)
+- [LLM Providers](#-llm-providers)
+  - [Supported Providers](#supported-providers)
+  - [Smart Routing](#smart-routing)
+- [Tool System](#-tool-system)
+- [API Reference](#-api-reference)
+  - [REST Endpoints](#rest-endpoints)
+  - [WebSocket Events](#websocket-events)
+- [CLI Reference](#-cli-reference)
+- [Configuration](#-configuration)
+- [Deployment](#-deployment)
+  - [Docker](#docker)
+  - [Docker Compose](#docker-compose)
+  - [Kubernetes](#kubernetes)
+- [Development](#-development)
+  - [Setup](#setup)
+  - [Testing](#testing)
+  - [Code Quality](#code-quality)
+- [Project Structure](#-project-structure)
+- [Roadmap](#-roadmap)
+- [Contributing](#-contributing)
+- [License](#-license)
+
+---
+
+## 🌟 Overview
+
+**Agent Village** is a sophisticated multi-agent orchestration platform designed for complex task automation. It coordinates multiple AI agents with different specializations to accomplish goals that require planning, execution, validation, and learning.
+
+### Why Agent Village?
+
+| Challenge | Solution |
+|-----------|----------|
+| Complex tasks need multiple skills | Specialized agents collaborate seamlessly |
+| AI systems can be unpredictable | Hard safety limits that cannot be bypassed |
+| Context gets lost in long tasks | Hierarchical memory (episodic, semantic, strategic) |
+| Single LLM bottleneck | Multi-provider support with smart routing |
+| Production deployment is hard | Docker & Kubernetes ready out of the box |
+
+---
+
+## ✨ Key Features
+
+### 🤖 Multi-Agent Orchestration
+- **8 Specialized Agent Types** - Governor, Planner, Tool, Critic, Memory Keeper, Swarm Coordinator, Swarm Worker, Evolver
+- **Hierarchical Coordination** - Meta-agent orchestrates specialized sub-agents
+- **Parallel Execution** - Swarm pattern for independent subtasks
+- **Self-Reflection** - Agents assess their own performance
+
+### 🧠 Advanced Memory System
+- **Episodic Memory** - What happened (events, experiences)
+- **Semantic Memory** - What is known (facts with vector embeddings)
+- **Strategic Memory** - Why decisions were made
+- **Procedural Memory** - How to do things (planned)
+
+### 🔒 Safety-First Design
+- **Hard Limits** - Cannot be bypassed programmatically
+- **Human-in-the-Loop** - Approval gates for sensitive actions
+- **Token Budgets** - Prevent runaway costs
+- **Action Blocking** - Dangerous operations blocked by default
+
+### 🔌 Multi-Provider LLM Support
+- **Anthropic Claude** - Opus, Sonnet, Haiku
+- **OpenAI GPT** - GPT-4, GPT-4 Mini
+- **Ollama** - Local models (Llama 3.2, etc.)
+- **Smart Routing** - Right model for each agent type
+- **Automatic Fallback** - Provider health monitoring
+
+### 🚀 Production Ready
+- **FastAPI** - High-performance async REST API
+- **WebSocket** - Real-time event streaming
+- **PostgreSQL** - Persistent relational storage
+- **Qdrant** - Vector database for semantic search
+- **Redis** - Caching and message bus
+- **Docker & Kubernetes** - Enterprise deployment
+
+---
+
+## 🏗 Architecture
+
+### System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              CLIENT LAYER                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│     REST API          │      WebSocket        │         CLI                 │
+│   (FastAPI)           │    (Real-time)        │       (Typer)               │
+└───────────┬───────────┴──────────┬────────────┴───────────┬─────────────────┘
+            │                      │                        │
+            ▼                      ▼                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           ORCHESTRATION LAYER                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
+│  │   Governor  │───▶│     FSM     │───▶│   Safety    │───▶│   Registry  │  │
+│  │ (Meta-Agent)│    │(State Ctrl) │    │   Gate      │    │  (Agents)   │  │
+│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘  │
+│         │                                                        │          │
+│         ▼                                                        ▼          │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        AGENT POOL                                    │   │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐       │   │
+│  │  │ Planner │ │  Tool   │ │ Critic  │ │  Swarm  │ │ Evolver │       │   │
+│  │  │  Agent  │ │  Agent  │ │  Agent  │ │ Workers │ │  Agent  │       │   │
+│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+            │                      │                        │
+            ▼                      ▼                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            SERVICE LAYER                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  │
+│  │   Memory    │    │    Tool     │    │  Provider   │    │ Persistence │  │
+│  │   System    │    │   Registry  │    │    Pool     │    │    Layer    │  │
+│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+            │                      │                        │
+            ▼                      ▼                        ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           STORAGE LAYER                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│     PostgreSQL        │       Qdrant          │         Redis               │
+│   (Relational)        │     (Vectors)         │        (Cache)              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Execution Flow
+
+```mermaid
+flowchart TB
+    subgraph Input
+        A[User Goal] --> B[API/CLI]
+    end
+
+    subgraph Orchestration
+        B --> C[Governor]
+        C --> D{Intent Analysis}
+        D --> E[Task Decomposition]
+        E --> F[Agent Assignment]
+    end
+
+    subgraph Execution
+        F --> G{Complexity?}
+        G -->|Simple| H[Single Agent]
+        G -->|Moderate| I[Sequential Agents]
+        G -->|Complex| J[Parallel Swarm]
+        H --> K[Execute]
+        I --> K
+        J --> K
+    end
+
+    subgraph Validation
+        K --> L[Critic Review]
+        L --> M{Quality OK?}
+        M -->|No| N[Replan]
+        N --> E
+        M -->|Yes| O[Write Memory]
+    end
+
+    subgraph Output
+        O --> P[Reflect]
+        P --> Q[Return Result]
+    end
+```
+
+### State Machine
+
+The Finite State Machine (FSM) controls goal execution through well-defined states:
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> RECEIVED: goal_received
+    RECEIVED --> INTENT_ANALYSIS: start_analysis
+    INTENT_ANALYSIS --> TASK_DECOMPOSITION: intent_analyzed
+    TASK_DECOMPOSITION --> AGENT_ASSIGNMENT: tasks_created
+    AGENT_ASSIGNMENT --> EXECUTING: agents_assigned
+    AGENT_ASSIGNMENT --> PARALLEL_EXECUTING: parallel_execution
+
+    EXECUTING --> VERIFYING: execution_complete
+    PARALLEL_EXECUTING --> VERIFYING: all_complete
+
+    VERIFYING --> WRITING_MEMORY: verification_passed
+    VERIFYING --> REPLANNING: verification_failed
+    VERIFYING --> FAILED: unrecoverable_error
+
+    REPLANNING --> TASK_DECOMPOSITION: replan_ready
+
+    WRITING_MEMORY --> REFLECTING: memory_written
+    REFLECTING --> COMPLETED: reflection_done
+
+    COMPLETED --> [*]
+    FAILED --> [*]
+
+    IDLE --> CANCELLED: cancel_requested
+    RECEIVED --> CANCELLED: cancel_requested
+    EXECUTING --> CANCELLED: cancel_requested
+    CANCELLED --> [*]
+```
+
+**State Descriptions:**
+
+| State | Description |
+|-------|-------------|
+| `IDLE` | Waiting for new goals |
+| `RECEIVED` | Goal received, queued for processing |
+| `INTENT_ANALYSIS` | LLM analyzing user intent |
+| `TASK_DECOMPOSITION` | Breaking goal into subtasks |
+| `AGENT_ASSIGNMENT` | Matching agents to tasks |
+| `EXECUTING` | Sequential task execution |
+| `PARALLEL_EXECUTING` | Parallel swarm execution |
+| `VERIFYING` | Critic validating results |
+| `REPLANNING` | Adjusting plan after failure |
+| `WRITING_MEMORY` | Persisting learnings |
+| `REFLECTING` | Agent self-assessment |
+| `COMPLETED` | Goal successfully achieved |
+| `FAILED` | Unrecoverable failure |
+| `CANCELLED` | User cancelled goal |
+
+---
+
+## 🤖 Agent System
+
+### Agent Types
+
+```mermaid
+graph TB
+    subgraph Meta Layer
+        GOV[🏛️ Governor<br/>Orchestrator]
+    end
+
+    subgraph Planning Layer
+        PLAN[📋 Planner<br/>Task Decomposition]
+        EVOL[🧬 Evolver<br/>System Optimization]
+    end
+
+    subgraph Execution Layer
+        TOOL[🔧 Tool Agent<br/>Action Execution]
+        SWARM_C[👑 Swarm Coordinator<br/>Parallel Management]
+        SWARM_W[🐝 Swarm Workers<br/>Subtask Execution]
+    end
+
+    subgraph Validation Layer
+        CRIT[🔍 Critic<br/>Quality Validation]
+        MEM[🧠 Memory Keeper<br/>Knowledge Storage]
+    end
+
+    GOV --> PLAN
+    GOV --> EVOL
+    PLAN --> TOOL
+    PLAN --> SWARM_C
+    SWARM_C --> SWARM_W
+    TOOL --> CRIT
+    SWARM_W --> CRIT
+    CRIT --> MEM
+```
+
+#### Detailed Agent Specifications
+
+| Agent | Type | Role | Max Tokens | Capabilities |
+|-------|------|------|------------|--------------|
+| **Governor** | `GOVERNOR` | Meta-orchestrator | 8,192 | Spawns agents, strategic decisions, goal management |
+| **Planner** | `PLANNER` | Task decomposition | 8,192 | Workflow design, dependency analysis, resource planning |
+| **Tool Agent** | `TOOL` | Action execution | 4,096 | Tool calling, API integration, file operations |
+| **Critic** | `CRITIC` | Quality validation | 4,096 | Result review, issue detection, quality scoring |
+| **Memory Keeper** | `MEMORY_KEEPER` | Memory management | 2,048 | Long-term storage, knowledge retrieval, indexing |
+| **Swarm Coordinator** | `SWARM_COORDINATOR` | Parallel management | 4,096 | Work division, worker management, result aggregation |
+| **Swarm Worker** | `SWARM_WORKER` | Subtask execution | 2,048 | Independent task execution, status reporting |
+| **Evolver** | `EVOLVER` | System optimization | 8,192 | Prompt improvement, pattern learning, strategy evolution |
+
+### Agent Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant R as Registry
+    participant A as Agent
+    participant G as Governor
+    participant T as Tool
+
+    R->>A: create(config)
+    A->>A: __init__()
+    R->>A: initialize()
+    A->>A: Setup resources
+
+    G->>A: execute(message)
+    A->>T: call_tool()
+    T-->>A: result
+    A-->>G: response
+
+    G->>A: reflect(result)
+    A->>A: Self-assessment
+    A-->>G: reflection
+
+    R->>A: shutdown()
+    A->>A: Cleanup
+```
+
+**Lifecycle Methods:**
+
+```python
+class BaseAgent(ABC):
+    async def initialize(self) -> None:
+        """Called once when agent is created. Setup resources."""
+
+    async def execute(self, message: AgentMessage) -> AgentMessage:
+        """Main execution method. Process task and return result."""
+
+    async def reflect(self, result: AgentMessage) -> dict:
+        """Self-assessment after task completion."""
+
+    async def shutdown(self) -> None:
+        """Cleanup when agent is stopped."""
+```
+
+### Agent Communication
+
+Agents communicate via structured messages:
+
+```mermaid
+flowchart LR
+    subgraph Message Structure
+        M[AgentMessage]
+        M --> MT[message_type]
+        M --> S[sender]
+        M --> R[recipient]
+        M --> T[task]
+        M --> C[content]
+        M --> P[priority]
+        M --> CO[constraints]
+    end
+```
+
+**Message Types:**
+
+| Category | Types |
+|----------|-------|
+| **Goal Lifecycle** | `GOAL_CREATED`, `GOAL_UPDATED`, `GOAL_COMPLETED`, `GOAL_FAILED` |
+| **Task Lifecycle** | `TASK_ASSIGNED`, `TASK_STARTED`, `TASK_PROGRESS`, `TASK_COMPLETED`, `TASK_FAILED` |
+| **Agent Lifecycle** | `AGENT_SPAWNED`, `AGENT_READY`, `AGENT_BUSY`, `AGENT_STOPPED` |
+| **Control Flow** | `REQUEST`, `RESPONSE`, `DELEGATE`, `ESCALATE` |
+| **Human Interaction** | `APPROVAL_REQUIRED`, `APPROVAL_GRANTED`, `APPROVAL_DENIED` |
+
+---
+
+## 🧠 Memory System
+
+### Memory Types
+
+```mermaid
+graph TB
+    subgraph Memory System
+        E[📅 Episodic<br/>What Happened]
+        S[📚 Semantic<br/>What Is Known]
+        ST[🎯 Strategic<br/>Why Decided]
+        P[⚙️ Procedural<br/>How To Do]
+    end
+
+    subgraph Storage Backends
+        PG[(PostgreSQL)]
+        QD[(Qdrant)]
+        RD[(Redis)]
+    end
+
+    E --> PG
+    S --> QD
+    ST --> PG
+    P --> PG
+
+    E -.-> RD
+    S -.-> RD
+```
+
+#### Episodic Memory
+**Purpose:** Records events and experiences in temporal sequence
+
+```python
+EpisodicMemory
+├── goal_id: str           # Associated goal
+├── event_type: str        # "goal_started", "task_completed", etc.
+├── description: str       # What happened
+├── agents_involved: list  # Participating agents
+├── outcome: str           # success/failure/partial
+├── timestamp: datetime    # When it occurred
+├── importance: float      # 0.0-1.0 significance
+└── tags: list[str]        # Categorization
+```
+
+**Use Cases:**
+- "What happened during goal X?"
+- "Show all failures in the last hour"
+- "Which agents worked on task Y?"
+
+#### Semantic Memory
+**Purpose:** Stores facts and knowledge with vector embeddings
+
+```python
+SemanticMemory
+├── content: str           # The knowledge/fact
+├── domain: str            # Category (e.g., "python", "devops")
+├── confidence: float      # 0.0-1.0 certainty
+├── source: str            # Where learned
+├── embedding: list[float] # Vector representation
+├── related_memories: list # Connected knowledge
+└── access_count: int      # Usage frequency
+```
+
+**Use Cases:**
+- "What do we know about Docker?"
+- "Find similar concepts to X"
+- "Most frequently accessed knowledge"
+
+#### Strategic Memory
+**Purpose:** Records decision rationale and outcomes
+
+```python
+StrategicMemory
+├── decision: str          # What was decided
+├── context: str           # Situation description
+├── alternatives: list     # Options considered
+├── rationale: str         # Why this choice
+├── outcome: str           # Result of decision
+├── lessons_learned: str   # Retrospective insight
+└── confidence: float      # Decision confidence
+```
+
+**Use Cases:**
+- "Why did we choose approach X?"
+- "What alternatives were considered?"
+- "Lessons from similar decisions"
+
+### Memory Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Memory Manager                            │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │   Store     │  │   Query     │  │     Embeddings      │  │
+│  │  Interface  │  │   Engine    │  │      Service        │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
+│         │                │                     │             │
+│         ▼                ▼                     ▼             │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │              Vector Store (Qdrant)                   │    │
+│  │  • Semantic similarity search                        │    │
+│  │  • Configurable distance metrics                     │    │
+│  │  • Filtering by metadata                             │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │           Relational Store (PostgreSQL)              │    │
+│  │  • Episodic event sequences                          │    │
+│  │  • Strategic decision records                        │    │
+│  │  • Full-text search                                  │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │               Cache Layer (Redis)                    │    │
+│  │  • Hot memory access                                 │    │
+│  │  • Query result caching                              │    │
+│  │  • TTL-based expiration                              │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔒 Safety & Governance
+
+### Safety Limits
+
+The Safety Gate enforces **hard limits that cannot be bypassed**:
+
+```mermaid
+flowchart TB
+    subgraph Safety Gate
+        A[Action Request] --> B{Recursion Depth?}
+        B -->|> 10| BLOCK[❌ BLOCKED]
+        B -->|≤ 10| C{Token Budget?}
+        C -->|Exceeded| BLOCK
+        C -->|OK| D{Agent Spawns?}
+        D -->|> 50| BLOCK
+        D -->|≤ 50| E{Execution Time?}
+        E -->|> 3600s| BLOCK
+        E -->|OK| F{Risk Level?}
+        F -->|Too High| BLOCK
+        F -->|OK| G{Blocked Action?}
+        G -->|Yes| BLOCK
+        G -->|No| H{Needs Approval?}
+        H -->|Yes| WAIT[⏳ WAIT FOR HUMAN]
+        H -->|No| ALLOW[✅ ALLOWED]
+    end
+```
+
+**Default Safety Limits:**
+
+| Limit | Default Value | Description |
+|-------|---------------|-------------|
+| `max_recursion_depth` | 10 | Maximum nested goal depth |
+| `max_agent_spawns` | 50 | Maximum agents per goal |
+| `max_tokens_per_task` | 100,000 | Token limit per task |
+| `max_tokens_per_goal` | 500,000 | Token limit per goal |
+| `max_execution_time_seconds` | 3,600 | 1 hour timeout |
+| `max_risk_level` | "high" | Maximum allowed risk |
+
+**Blocked Actions (always denied):**
+
+```python
+blocked_actions = [
+    "rm -rf /",
+    "rm -rf ~",
+    "rm -rf *",
+    "mkfs",
+    "dd if=",
+    ":(){:|:&};:",      # Fork bomb
+    "chmod -R 777 /",
+    "DROP DATABASE",
+    "DELETE FROM * WHERE 1=1",
+    "format c:",
+    "del /f /s /q",
+]
+```
+
+### Approval Gates
+
+Certain actions require human approval:
+
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant S as Safety Gate
+    participant H as Human
+    participant E as Execution
+
+    A->>S: Request: deploy to production
+    S->>S: Check: requires_approval?
+    S->>H: 🔔 Approval Required
+
+    alt Approved
+        H->>S: ✅ Approve
+        S->>E: Execute action
+        E-->>A: Result
+    else Denied
+        H->>S: ❌ Deny
+        S-->>A: Action blocked
+    end
+```
+
+**Actions Requiring Approval:**
+
+| Action Category | Examples |
+|-----------------|----------|
+| **Deployment** | `deploy`, `release`, `publish` |
+| **Destruction** | `delete`, `remove`, `destroy` |
+| **Financial** | `payment`, `purchase`, `transfer` |
+| **Administrative** | `admin`, `sudo`, `root` |
+| **External** | `email`, `notify`, `webhook` |
+
+---
+
+## 🔌 LLM Providers
+
+### Supported Providers
+
+```mermaid
+graph LR
+    subgraph Provider Pool
+        A[Anthropic<br/>Claude]
+        O[OpenAI<br/>GPT-4]
+        L[Ollama<br/>Local]
+    end
+
+    subgraph Models
+        A --> A1[Opus]
+        A --> A2[Sonnet]
+        A --> A3[Haiku]
+        O --> O1[GPT-4]
+        O --> O2[GPT-4 Mini]
+        L --> L1[Llama 3.2]
+        L --> L2[Mistral]
+        L --> L3[Custom]
+    end
+```
+
+**Provider Configuration:**
+
+| Provider | Environment Variables | Models |
+|----------|----------------------|--------|
+| **Anthropic** | `LLM__ANTHROPIC_API_KEY` | `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku` |
+| **OpenAI** | `LLM__OPENAI_API_KEY` | `gpt-4`, `gpt-4-mini` |
+| **Ollama** | `LLM__OLLAMA_BASE_URL` | Any Ollama model |
+
+### Smart Routing
+
+Different agents are routed to optimal models:
+
+```python
+routing_rules = {
+    # High-capability tasks → Premium models
+    "governor": ["anthropic_opus", "anthropic_sonnet", "openai_gpt4"],
+    "planner":  ["anthropic_opus", "anthropic_sonnet", "openai_gpt4"],
+    "evolver":  ["anthropic_opus", "anthropic_sonnet"],
+
+    # Standard tasks → Balanced models
+    "tool":     ["anthropic_sonnet", "openai_gpt4", "ollama"],
+    "critic":   ["anthropic_sonnet", "openai_gpt4"],
+
+    # Simple tasks → Cost-optimized models
+    "memory":   ["anthropic_haiku", "ollama", "openai_gpt4_mini"],
+    "swarm":    ["ollama", "anthropic_haiku", "openai_gpt4_mini"],
+}
+```
+
+**Fallback Behavior:**
+
+```mermaid
+flowchart LR
+    A[Request] --> B[Primary Provider]
+    B -->|Healthy| C[Execute]
+    B -->|Unhealthy| D[Fallback 1]
+    D -->|Healthy| C
+    D -->|Unhealthy| E[Fallback 2]
+    E -->|Healthy| C
+    E -->|Unhealthy| F[Error]
+```
+
+---
+
+## 🛠 Tool System
+
+### Tool Architecture
+
+```mermaid
+graph TB
+    subgraph Tool Registry
+        TR[Tool Registry]
+        TR --> T1[echo]
+        TR --> T2[calculate]
+        TR --> T3[file_read]
+        TR --> T4[web_fetch]
+        TR --> T5[Custom...]
+    end
+
+    subgraph Permissions
+        P1[NONE]
+        P2[READ_ONLY]
+        P3[READ_WRITE]
+        P4[EXECUTE]
+        P5[ADMIN]
+    end
+
+    subgraph Risk Levels
+        R1[🟢 Low]
+        R2[🟡 Medium]
+        R3[🔴 High]
+    end
+```
+
+### Tool Definition
+
+```python
+@dataclass
+class Tool:
+    name: str                    # Unique identifier
+    description: str             # What the tool does
+    parameters: dict             # JSON Schema for inputs
+    handler: Callable            # Async function to execute
+    permission_required: str     # Required permission level
+    requires_approval: bool      # Human approval needed?
+    risk_level: str             # low, medium, high
+    category: str               # utility, file, web, code, etc.
+```
+
+### Built-in Tools
+
+| Tool | Description | Permission | Risk |
+|------|-------------|------------|------|
+| `echo` | Echo input (testing) | NONE | Low |
+| `calculate` | Safe math expressions | NONE | Low |
+
+### Creating Custom Tools
+
+```python
+from src.tools.registry import ToolRegistry, Tool
+
+async def my_tool_handler(params: dict) -> dict:
+    """Custom tool implementation."""
+    return {"result": params["input"].upper()}
+
+tool = Tool(
+    name="uppercase",
+    description="Convert text to uppercase",
+    parameters={
+        "type": "object",
+        "properties": {
+            "input": {"type": "string", "description": "Text to convert"}
+        },
+        "required": ["input"]
+    },
+    handler=my_tool_handler,
+    permission_required="READ_ONLY",
+    requires_approval=False,
+    risk_level="low",
+    category="utility"
+)
+
+registry = ToolRegistry()
+registry.register(tool)
+```
+
+---
+
+## 📡 API Reference
+
+### REST Endpoints
+
+#### Goals
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/goals` | Create and execute a new goal |
+| `GET` | `/goals` | List all goals (with filters) |
+| `GET` | `/goals/{id}` | Get goal details |
+| `DELETE` | `/goals/{id}` | Cancel a goal |
+| `POST` | `/goals/{id}/approve` | Approve pending goal |
+
+**Create Goal Request:**
+
+```bash
+curl -X POST http://localhost:8000/goals \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Analyze the codebase and generate documentation",
+    "context": {
+      "repository": "my-project",
+      "focus_areas": ["api", "models"]
+    },
+    "constraints": {
+      "max_tokens": 50000,
+      "max_time_seconds": 1800
+    }
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "goal_id": "01HXYZ...",
+  "status": "received",
+  "created_at": "2024-01-15T10:30:00Z",
+  "estimated_complexity": "moderate"
+}
+```
+
+#### Agents
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/agents` | List all active agents |
+| `GET` | `/agents/{id}` | Get agent details |
+| `POST` | `/agents/{id}/stop` | Stop an agent |
+
+#### System
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/stats` | System statistics |
+
+### WebSocket Events
+
+**Connection:**
+
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws');
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log(`[${data.type}]`, data.payload);
+};
+```
+
+**Event Types:**
+
+| Event | Description | Payload |
+|-------|-------------|---------|
+| `goal.created` | New goal started | `{goal_id, description}` |
+| `goal.progress` | Goal progress update | `{goal_id, progress, current_task}` |
+| `goal.completed` | Goal finished | `{goal_id, result, duration}` |
+| `goal.failed` | Goal failed | `{goal_id, error, suggestions}` |
+| `agent.spawned` | Agent created | `{agent_id, type, task}` |
+| `agent.busy` | Agent working | `{agent_id, task_id}` |
+| `task.started` | Task execution began | `{task_id, agent_id}` |
+| `task.completed` | Task finished | `{task_id, result}` |
+| `approval.required` | Human approval needed | `{goal_id, action, reason}` |
+
+---
+
+## 💻 CLI Reference
+
+### Installation
+
+```bash
+# Install the package
+pip install -e .
+
+# Verify installation
+village --help
+```
+
+### Commands
+
+#### Status
+
+```bash
+# Show system status
+village status
+
+# Output:
+# Agent Village Status
+# ═══════════════════════════════════════
+# Status:     🟢 Running
+# Uptime:     2h 34m
+# Active Goals: 3
+# Active Agents: 12
+# Memory Usage: 256 MB
+```
+
+#### Goals
+
+```bash
+# Run a goal
+village goal run "Refactor the authentication module"
+
+# Check goal status
+village goal status 01HXYZ...
+
+# List all goals
+village goal list
+
+# List goals with filter
+village goal list --status running
+
+# Approve a pending goal
+village goal approve 01HXYZ...
+
+# Cancel a goal
+village goal cancel 01HXYZ...
+```
+
+#### Agents
+
+```bash
+# List active agents
+village agent list
+
+# Output:
+# ID              Type        Status    Current Task
+# ─────────────────────────────────────────────────────
+# agent_01HX...   governor    busy      Analyzing goal
+# agent_01HY...   planner     idle      -
+# agent_01HZ...   tool        busy      Reading files
+
+# Stop an agent
+village agent stop agent_01HX...
+```
+
+#### Configuration
+
+```bash
+# Show current configuration
+village config show
+
+# Validate configuration
+village config validate
+```
+
+### Examples
+
+```bash
+# Simple goal
+village goal run "Fix the typo in README.md"
+
+# Goal with context
+village goal run "Add user authentication" \
+  --context '{"framework": "fastapi", "method": "jwt"}'
+
+# Goal with constraints
+village goal run "Generate API documentation" \
+  --max-tokens 100000 \
+  --max-time 3600
+
+# Watch goal progress
+village goal watch 01HXYZ...
+```
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+Create a `.env` file based on `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+#### LLM Configuration
+
+```bash
+# Default provider (anthropic, openai, ollama)
+LLM__DEFAULT_PROVIDER=anthropic
+
+# Anthropic (Claude)
+LLM__ANTHROPIC_API_KEY=sk-ant-...
+LLM__ANTHROPIC_MODEL_OPUS=claude-3-opus-20240229
+LLM__ANTHROPIC_MODEL_SONNET=claude-3-sonnet-20240229
+LLM__ANTHROPIC_MODEL_HAIKU=claude-3-haiku-20240307
+
+# OpenAI
+LLM__OPENAI_API_KEY=sk-...
+LLM__OPENAI_MODEL=gpt-4-turbo-preview
+LLM__OPENAI_MODEL_MINI=gpt-4-mini
+
+# Ollama (local)
+LLM__OLLAMA_BASE_URL=http://localhost:11434
+LLM__OLLAMA_MODEL=llama3.2
+```
+
+#### Safety Configuration
+
+```bash
+# Hard limits
+SAFETY__MAX_RECURSION_DEPTH=10
+SAFETY__MAX_AGENT_SPAWNS=50
+SAFETY__MAX_TOKENS_PER_TASK=100000
+SAFETY__MAX_TOKENS_PER_GOAL=500000
+SAFETY__MAX_EXECUTION_TIME_SECONDS=3600
+SAFETY__MAX_RISK_LEVEL=high
+
+# Approval requirements (comma-separated)
+SAFETY__REQUIRE_HUMAN_APPROVAL=deploy,delete,payment,admin
+
+# Blocked actions (comma-separated)
+SAFETY__BLOCKED_ACTIONS=rm -rf,DROP DATABASE,format
+```
+
+#### Memory Configuration
+
+```bash
+# PostgreSQL
+MEMORY__POSTGRES_URL=postgresql+asyncpg://user:pass@localhost:5432/agent_village
+
+# Qdrant (vector database)
+MEMORY__QDRANT_URL=http://localhost:6333
+MEMORY__QDRANT_COLLECTION=agent_village
+
+# Redis (cache)
+MEMORY__REDIS_URL=redis://localhost:6379/0
+```
+
+#### API Configuration
+
+```bash
+# Server settings
+API__HOST=0.0.0.0
+API__PORT=8000
+API__WORKERS=4
+API__DEBUG=false
+
+# CORS (comma-separated origins)
+API__CORS_ORIGINS=http://localhost:3000,https://myapp.com
+
+# Authentication (optional)
+API__AUTH_ENABLED=false
+API__AUTH_SECRET_KEY=your-secret-key
+```
+
+#### Logging Configuration
+
+```bash
+# Log level (DEBUG, INFO, WARNING, ERROR)
+LOG__LEVEL=INFO
+
+# Log format (json, console)
+LOG__FORMAT=json
+
+# OpenTelemetry (optional)
+OTEL__ENABLED=false
+OTEL__ENDPOINT=http://localhost:4317
+OTEL__SERVICE_NAME=agent-village
+```
+
+### Configuration File
+
+Alternatively, use `config.yaml`:
+
+```yaml
+llm:
+  default_provider: anthropic
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    model_opus: claude-3-opus-20240229
+    model_sonnet: claude-3-sonnet-20240229
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4-turbo-preview
+
+safety:
+  max_recursion_depth: 10
+  max_agent_spawns: 50
+  max_tokens_per_goal: 500000
+  require_human_approval:
+    - deploy
+    - delete
+    - payment
+
+memory:
+  postgres_url: postgresql+asyncpg://localhost/agent_village
+  qdrant_url: http://localhost:6333
+  redis_url: redis://localhost:6379
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  workers: 4
+```
+
+---
+
+## 🚀 Deployment
+
+### Docker
+
+**Build the image:**
+
+```bash
+docker build -t agent-village:latest -f docker/Dockerfile .
+```
+
+**Run the container:**
+
+```bash
+docker run -d \
+  --name agent-village \
+  -p 8000:8000 \
+  -e LLM__ANTHROPIC_API_KEY=sk-ant-... \
+  -e MEMORY__POSTGRES_URL=postgresql+asyncpg://... \
+  agent-village:latest
+```
+
+### Docker Compose
+
+**Start all services:**
+
+```bash
+cd docker
+docker-compose up -d
+```
+
+**Services included:**
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `api` | 8000 | FastAPI server |
+| `postgres` | 5432 | PostgreSQL database |
+| `redis` | 6379 | Redis cache |
+| `qdrant` | 6333 | Vector database |
+| `ollama` | 11434 | Local LLM (optional) |
+
+**Start with local LLM:**
+
+```bash
+docker-compose --profile ollama up -d
+```
+
+**View logs:**
+
+```bash
+docker-compose logs -f api
+```
+
+**Stop services:**
+
+```bash
+docker-compose down
+```
+
+### Kubernetes
+
+**Prerequisites:**
+- Kubernetes cluster (1.24+)
+- kubectl configured
+- Secrets created
+
+**Create secrets:**
+
+```bash
+kubectl create secret generic agent-village-secrets \
+  --from-literal=anthropic-api-key=sk-ant-... \
+  --from-literal=openai-api-key=sk-... \
+  --from-literal=postgres-url=postgresql+asyncpg://... \
+  -n agent-village
+```
+
+**Deploy:**
+
+```bash
+# Create namespace and resources
+kubectl apply -f k8s/base/namespace.yaml
+kubectl apply -f k8s/base/configmap.yaml
+kubectl apply -f k8s/base/secrets.yaml
+kubectl apply -f k8s/base/deployment.yaml
+kubectl apply -f k8s/base/service.yaml
+```
+
+**Verify deployment:**
+
+```bash
+kubectl get pods -n agent-village
+kubectl get svc -n agent-village
+```
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────┐
+│         Load Balancer (k8s Service)         │
+├─────────────────────────────────────────────┤
+│   API Pod 1   │   API Pod 2   │   API Pod 3 │
+│   (replica)   │   (replica)   │   (replica) │
+└───────────────┴───────────────┴─────────────┘
+                      │
+    ┌─────────────────┼─────────────────┐
+    │                 │                 │
+    ▼                 ▼                 ▼
+PostgreSQL         Redis            Qdrant
+ (StatefulSet)    (StatefulSet)   (StatefulSet)
+```
+
+**Scaling:**
+
+```bash
+# Scale API pods
+kubectl scale deployment agent-village-api --replicas=5 -n agent-village
+
+# Scale workers
+kubectl scale deployment agent-village-worker --replicas=10 -n agent-village
+```
+
+---
+
+## 🔧 Development
+
+### Setup
+
+**Prerequisites:**
+- Python 3.11+
+- Poetry or pip
+- Docker (optional, for services)
+
+**Clone and install:**
+
+```bash
+# Clone repository
+git clone https://github.com/your-org/agent-village.git
+cd agent-village
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+# or
+.\venv\Scripts\activate   # Windows
+
+# Install dependencies
+pip install -e ".[dev]"
+
+# Install pre-commit hooks
+pre-commit install
+```
+
+**Start development services:**
+
+```bash
+# Start PostgreSQL, Redis, Qdrant
+docker-compose -f docker/docker-compose.yml up -d postgres redis qdrant
+
+# Run the API in development mode
+uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Testing
+
+**Run all tests:**
+
+```bash
+pytest
+```
+
+**Run with coverage:**
+
+```bash
+pytest --cov=src --cov-report=html
+```
+
+**Run specific tests:**
+
+```bash
+# Test agents
+pytest tests/test_agents.py -v
+
+# Test safety system
+pytest tests/test_safety.py -v
+
+# Test with markers
+pytest -m "not slow" -v
+```
+
+**Test structure:**
+
+| File | Coverage |
+|------|----------|
+| `test_agents.py` | Agent behavior, reflection |
+| `test_fsm.py` | State machine transitions |
+| `test_memory.py` | Memory operations |
+| `test_message.py` | Message protocol |
+| `test_persistence.py` | Database operations |
+| `test_registry.py` | Agent registry |
+| `test_safety.py` | Safety gate enforcement |
+| `test_tools.py` | Tool execution |
+| `test_websocket.py` | WebSocket handling |
+
+### Code Quality
+
+**Linting:**
+
+```bash
+# Run ruff linter
+ruff check src tests
+
+# Auto-fix issues
+ruff check --fix src tests
+```
+
+**Type checking:**
+
+```bash
+# Run mypy
+mypy src
+```
+
+**Formatting:**
+
+```bash
+# Format code
+ruff format src tests
+```
+
+**Pre-commit (runs all checks):**
+
+```bash
+pre-commit run --all-files
+```
+
+---
+
+## 📁 Project Structure
+
+```
+agent-village/
+├── src/
+│   ├── __init__.py
+│   ├── agents/                  # Agent implementations
+│   │   ├── __init__.py
+│   │   ├── base.py             # BaseAgent ABC
+│   │   ├── critic.py           # CriticAgent
+│   │   ├── evolver.py          # EvolverAgent
+│   │   ├── planner.py          # PlannerAgent
+│   │   ├── swarm.py            # SwarmCoordinator, SwarmWorker
+│   │   └── tool_agent.py       # ToolAgent
+│   │
+│   ├── api/                     # REST & WebSocket API
+│   │   ├── __init__.py
+│   │   ├── main.py             # FastAPI application
+│   │   └── websocket.py        # WebSocket handlers
+│   │
+│   ├── cli/                     # Command-line interface
+│   │   ├── __init__.py
+│   │   └── main.py             # Typer CLI app
+│   │
+│   ├── config/                  # Configuration
+│   │   ├── __init__.py
+│   │   └── settings.py         # Pydantic settings
+│   │
+│   ├── core/                    # Core orchestration
+│   │   ├── __init__.py
+│   │   ├── fsm.py              # Finite State Machine
+│   │   ├── governor.py         # Governor meta-agent
+│   │   ├── message.py          # Message protocol
+│   │   ├── registry.py         # Agent registry
+│   │   └── safety.py           # Safety gate
+│   │
+│   ├── memory/                  # Memory subsystems
+│   │   ├── __init__.py
+│   │   ├── base.py             # Base memory interface
+│   │   ├── embeddings.py       # Embedding service
+│   │   ├── episodic.py         # Episodic memory
+│   │   ├── procedural.py       # Procedural memory
+│   │   ├── semantic.py         # Semantic memory
+│   │   ├── strategic.py        # Strategic memory
+│   │   └── vector_store.py     # Vector store interface
+│   │
+│   ├── persistence/             # Database layer
+│   │   ├── __init__.py
+│   │   ├── database.py         # Database connection
+│   │   ├── models.py           # SQLAlchemy models
+│   │   └── repositories.py     # Data repositories
+│   │
+│   ├── providers/               # LLM providers
+│   │   ├── __init__.py
+│   │   ├── anthropic.py        # Claude provider
+│   │   ├── base.py             # Base provider interface
+│   │   ├── ollama.py           # Ollama provider
+│   │   └── openai.py           # OpenAI provider
+│   │
+│   └── tools/                   # Tool system
+│       ├── __init__.py
+│       ├── file.py             # File operations
+│       ├── registry.py         # Tool registry
+│       ├── sandbox.py          # Sandboxed execution
+│       └── web.py              # Web operations
+│
+├── tests/                       # Test suite
+│   ├── __init__.py
+│   ├── conftest.py             # Pytest fixtures
+│   ├── test_agents.py
+│   ├── test_fsm.py
+│   ├── test_memory.py
+│   ├── test_message.py
+│   ├── test_persistence.py
+│   ├── test_registry.py
+│   ├── test_safety.py
+│   ├── test_tools.py
+│   └── test_websocket.py
+│
+├── docker/                      # Docker configuration
+│   ├── Dockerfile
+│   └── docker-compose.yml
+│
+├── k8s/                         # Kubernetes manifests
+│   └── base/
+│       ├── configmap.yaml
+│       ├── deployment.yaml
+│       ├── namespace.yaml
+│       ├── secrets.yaml
+│       └── service.yaml
+│
+├── .env.example                 # Environment template
+├── .gitignore
+├── pyproject.toml              # Project configuration
+└── README.md                   # This file
+```
+
+---
+
+## 🗺 Roadmap
+
+### Current Status: Alpha (v0.1.0)
+
+#### ✅ Implemented
+
+- [x] Core orchestration (Governor, FSM, Safety Gate)
+- [x] All 8 agent types
+- [x] Message protocol and routing
+- [x] Memory subsystems (episodic, semantic, strategic)
+- [x] REST API and WebSocket endpoints
+- [x] Multi-provider LLM support
+- [x] Tool framework and registry
+- [x] Database models and repositories
+- [x] Configuration management
+- [x] Docker and Kubernetes deployment
+- [x] CLI interface
+- [x] Test suite
+
+#### 🔄 In Progress
+
+- [ ] Memory search API endpoint
+- [ ] Procedural memory implementation
+- [ ] Agent log streaming
+- [ ] Real-time agent monitoring UI
+
+#### 📋 Planned
+
+- [ ] Distributed worker system
+- [ ] Task queue (Celery/RQ)
+- [ ] Plugin system for custom agents
+- [ ] Web dashboard
+- [ ] Prometheus metrics
+- [ ] Grafana dashboards
+- [ ] Multi-tenancy support
+- [ ] Rate limiting
+- [ ] Audit logging
+- [ ] SSO integration
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please follow these steps:
+
+### Getting Started
+
+1. **Fork the repository**
+2. **Clone your fork:**
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/agent-village.git
+   ```
+3. **Create a feature branch:**
+   ```bash
+   git checkout -b feature/amazing-feature
+   ```
+4. **Make your changes**
+5. **Run tests:**
+   ```bash
+   pytest
+   ```
+6. **Run linting:**
+   ```bash
+   ruff check src tests
+   mypy src
+   ```
+7. **Commit your changes:**
+   ```bash
+   git commit -m "Add amazing feature"
+   ```
+8. **Push to your fork:**
+   ```bash
+   git push origin feature/amazing-feature
+   ```
+9. **Open a Pull Request**
+
+### Code Style
+
+- Follow PEP 8 guidelines
+- Use type hints for all functions
+- Write docstrings for public APIs
+- Keep functions focused and small
+- Write tests for new features
+
+### Commit Messages
+
+Use conventional commits:
+
+```
+feat: Add new agent type for data analysis
+fix: Resolve memory leak in episodic store
+docs: Update API documentation
+test: Add tests for safety gate
+refactor: Simplify provider routing logic
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- [Anthropic](https://anthropic.com) for Claude
+- [OpenAI](https://openai.com) for GPT models
+- [Ollama](https://ollama.ai) for local LLM support
+- [FastAPI](https://fastapi.tiangolo.com) for the web framework
+- [Qdrant](https://qdrant.tech) for vector search
+- [SQLAlchemy](https://sqlalchemy.org) for the ORM
+
+---
+
+<p align="center">
+  <strong>Built with ❤️ for the AI community</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/your-org/agent-village/issues">Report Bug</a>
+  ·
+  <a href="https://github.com/your-org/agent-village/issues">Request Feature</a>
+  ·
+  <a href="https://github.com/your-org/agent-village/discussions">Discussions</a>
+</p>
