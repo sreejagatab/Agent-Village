@@ -1505,6 +1505,74 @@ After improvements to tool registration and path handling, the system was verifi
 3. **System Prompts**: Enhanced ToolAgent prompt with clear file path guidance
 4. **Tool Descriptions**: Updated to explicitly state relative path requirements
 
+#### Agent Spawning, Persistence & Learning
+
+The system now includes intelligent agent management that enables:
+
+**1. Dynamic Agent Spawning**
+- Agents spawned based on task requirements
+- AgentManager tracks all created agents with profiles
+- Each agent gets capability definitions and performance metrics
+
+**2. Intelligent Agent Selection**
+```
+Governor needs agent for task
+    |
+    v
+AgentManager.find_best_agent()
+    |
+    +-- Check available agents in registry
+    +-- Query strategic memory for past decisions
+    +-- Score each agent:
+    |     - 40% historical success rate
+    |     - 30% task type specialization
+    |     - 20% capability keyword matching
+    |     - 10% recency bonus
+    |
+    v
+Return (best_agent, score, rationale)
+```
+
+**3. Learning from Outcomes**
+After each task execution:
+```python
+# Record outcome for learning
+await registry.record_task_outcome(
+    agent_id=agent.id,
+    task=task,
+    success=result.success,
+    tokens_used=result.tokens_used,
+    execution_time_ms=execution_time_ms,
+)
+```
+
+**4. Agent Reuse**
+- Previously successful agents are preferred for similar tasks
+- Agents build specialization over time
+- Strategic memory stores decision history
+
+**5. Verified Agent Learning Test Results:**
+```
+Agent Profiles Created:
+- code_executor_1: 3 tasks, 100% success (specializes in execution)
+- data_fetcher_1: 3 tasks, 67% success (specializes in data_retrieval)
+- general_agent: 2 tasks, 50% success
+
+Task Selection Test:
+Task: "Execute a Python script to calculate statistics"
+  1. code_executor_1: score=1.00 [SELECTED - High success rate, execution specialist]
+  2. data_fetcher_1: score=0.87
+
+Task: "Fetch data from the CoinGecko API"
+  1. data_fetcher_1: score=1.00 [SELECTED - data_retrieval specialist]
+  2. code_executor_1: score=1.00
+
+Learning Loop Verified:
+- Agent data_fetcher_1 had 3 tasks before new execution
+- After successful task: 4 tasks, success rate 67% -> 75%
+- Strategic memory updated with decision outcome
+```
+
 ### Code Quality
 
 **Linting:**
