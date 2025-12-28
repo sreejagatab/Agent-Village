@@ -1573,6 +1573,110 @@ Learning Loop Verified:
 - Strategic memory updated with decision outcome
 ```
 
+**6. Agent Lifecycle Test Results (test_agent_lifecycle.py):**
+```
+======================================================================
+AGENT LIFECYCLE TEST - VERIFIED
+======================================================================
+
+[Phase 1] Setting up infrastructure...
+  [OK] Provider pool created
+  [OK] AgentManager created with strategic memory
+  [OK] Registry created with AgentManager integration
+  [OK] Agent factories registered
+
+[Phase 2] Testing Dynamic Agent Spawning...
+  [OK] Created: TestPlanner1 (ID: 01KDJ84J...)
+  [OK] Agent profile created with 2 capabilities
+      Specializations: ['planning', 'decomposition', 'strategy']
+  [OK] Created: TestPlanner2 (ID: 01KDJ84K...)
+  [OK] Created: DataToolAgent with 6 capabilities
+
+[Phase 3] Testing Intelligent Agent Selection...
+  Task: Create a Python script that fetches data from API...
+  [OK] Selected: DataToolAgent (Score: 1.00)
+      Rationale: capability match for creation task
+
+  Task: Plan a strategy to decompose this complex goal...
+  [OK] Selected: TestPlanner1 (Score: 1.00)
+      Rationale: capability match for planning task
+
+[Phase 4] Testing Learning from Outcomes...
+  [OK] Performance updated:
+      Total tasks: 1, Success rate: 100%, Tokens: 150
+
+  After second task:
+      Total tasks: 2, Success rate: 100%
+      Task type scores: {'creation': 1.0, 'data_retrieval': 1.0}
+
+[Phase 5] Testing Agent Reuse for Similar Tasks...
+  [OK] Selected: DataToolAgent for similar API task
+  [OK] System correctly reused the experienced agent!
+
+[Phase 6] Testing Agent Recommendations...
+  1. DataToolAgent
+     Score: 1.00, Success rate: 100%
+     Rationale: High success rate (100%); Proven track record on creation
+
+[Phase 7] Testing Strategic Memory Integration...
+  Lessons learned from past tasks: 4
+    - Agent DataToolAgent succeeded on creation task
+    - Execution time: 2500ms, tokens: 150
+
+Summary: ALL TESTS PASSED
+  [OK] Dynamic agent spawning works
+  [OK] Agents registered with AgentManager
+  [OK] Intelligent agent selection based on capabilities
+  [OK] Learning from task outcomes
+  [OK] Agent reuse for similar tasks
+  [OK] Strategic memory integration
+  [OK] Agent recommendations work
+```
+
+**7. Agent Persistence Test Results (test_agent_persistence.py):**
+```
+======================================================================
+SESSION 1: Create Agents and Record Outcomes
+======================================================================
+  Created: DataSpecialist-v1 (persisted to PostgreSQL)
+  [OK] Fetch stock prices from Yahoo Finance
+  [OK] Download weather data from OpenWeather API
+  [OK] Parse CSV file and calculate statistics
+  [OK] Create bar chart from data
+  [OK] Export results to JSON file
+
+  Agent Performance:
+    Total tasks: 5
+    Success rate: 100%
+    Task type scores: {'data_retrieval': 1.0, 'analysis': 1.0, 'creation': 1.0}
+
+  Session ended. Agent persisted to database.
+
+======================================================================
+SESSION 2: Load Agents and Verify Persistence
+======================================================================
+  Loaded 7 agent profiles from database:
+  - TestPlanner1 (planner) - Tasks: 0, Success: 100%
+  - DataSpecialist-v1 (tool) [PREVIOUS] - Tasks: 5, Success: 100%
+  - DataToolAgent (tool) - Tasks: 2, Success: 100%
+
+  [OK] Previous agent found in database!
+  [OK] Task count preserved! (5 tasks)
+  [OK] Success rate preserved! (100%)
+
+  Agent recommendations for new data task:
+    1. DataSpecialist-v1 [EXPERIENCED] - Score: 1.00, Tasks: 5
+    2. DataToolAgent [EXPERIENCED] - Score: 1.00, Tasks: 2
+    3. NewSessionAgent [NEW] - Score: 1.00, Tasks: 0
+
+Key findings:
+  1. Agents are persisted to PostgreSQL database
+  2. Agent performance metrics are preserved across sessions
+  3. AgentManager can load historical agents on initialization
+  4. Experienced agents are recommended for similar tasks
+  5. Learning system enables intelligent agent reuse
+```
+
 ### Code Quality
 
 **Linting:**

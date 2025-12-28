@@ -17,8 +17,9 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from src.agents.base import AgentType, BaseAgent, AgentState
+
 if TYPE_CHECKING:
-    from src.agents.base import AgentType, BaseAgent, AgentState
     from src.core.message import Task
 
 from src.memory.strategic import Decision, StrategicMemory
