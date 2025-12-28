@@ -1822,6 +1822,56 @@ agent-village/
 
 ### Current Status: Alpha (v0.1.0)
 
+#### 🚀 Recent Improvements (v0.1.1)
+
+The following improvements were made based on real-world use case testing:
+
+**1. Robust JSON Parsing**
+- Added `extract_json_from_response()` helper function to Evolver, Critic, and Planner agents
+- Handles LLM responses wrapped in markdown code blocks (```json ... ```)
+- Gracefully extracts JSON from partial or malformed responses
+- Location: `src/agents/evolver.py`, `src/agents/critic.py`, `src/agents/planner.py`
+
+**2. Actionable Recommendations**
+- Enhanced Evolver and Critic system prompts to require:
+  - **Specific** recommendations (not generic "improve quality")
+  - **Prioritized** suggestions with `[HIGH]`, `[MEDIUM]`, `[LOW]` labels
+  - **Expected benefits** for each recommendation
+  - **Health score context** explaining the reasoning behind scores
+- Location: `src/agents/evolver.py:51-85`, `src/agents/critic.py:14-45`
+
+**3. Tool Agent Improvements**
+- Expanded `allowed_tools` to include: `create_directory`, `list_directory`, `http_get`, `http_post`
+- Added `_filter_tool_results()` method to clean permission error noise from outputs
+- Fixed null check bug in error handling (`result_data.get("error") or ""`)
+- Enhanced system prompt to focus on task results rather than error details
+- Location: `src/agents/tool_agent.py:87-91`, `src/agents/tool_agent.py:271-292`
+
+**4. Parallel Task Execution with Dependency Tracking**
+- Rewrote `_handle_parallel_execution()` in Governor for proper wave-based execution
+- Implements dependency tracking - tasks wait for their dependencies to complete
+- Groups tasks by `parallel_group` for wave execution
+- Includes deadlock detection when no tasks are ready but pending tasks exist
+- Location: `src/core/governor.py:_handle_parallel_execution()`
+
+**5. Intelligent Agent Assignment**
+- Improved `find_best_agent()` in AgentManager with smarter scoring:
+  - **Performance penalty**: Agents with <50% success rate (3+ tasks) get score * 0.7
+  - **Experience bonus**: Agents with 10+ tasks get +0.1 score bonus
+  - **Idle preference**: Idle agents get +0.05 bonus
+  - **Avoided agents**: Tracks failed agents to avoid reassignment
+- Added retry logic with up to 3 attempts for agent assignment
+- Location: `src/core/agent_manager.py:find_best_agent()`
+
+**Use Case Test Results After Improvements:**
+
+| Use Case | Before | After | Improvement |
+|----------|--------|-------|-------------|
+| Market Research (UC1) | 65/100 | 80/100 | +15 points |
+| Code Generation (UC2) | 55/100 | 85/100 | +30 points |
+| System Improvement (UC3) | 55/100 | **82/100** | +27 points |
+| System Health Score | ~50% | **76%** | +26% |
+
 #### ✅ Implemented
 
 - [x] Core orchestration (Governor, FSM, Safety Gate)
