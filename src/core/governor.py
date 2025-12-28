@@ -403,15 +403,17 @@ Keep tasks focused and minimal. Prefer fewer, well-defined tasks over many small
                 # Find or create appropriate agent
                 agent_type = AgentType(task.assigned_agent_type.lower())
 
-                # Try to find existing available agent
-                agent = await self.registry.find_best_agent(
-                    agent_type, task.description
+                # Try to find existing available agent using intelligent scoring
+                agent, score, rationale = await self.registry.find_best_agent(
+                    agent_type, task.description, task=task
                 )
 
                 if agent is None:
                     # Create new agent
                     try:
                         agent = await self.registry.create_agent(agent_type)
+                        score = 0.5  # Default score for new agents
+                        rationale = "New agent created (no existing agents available)"
                     except Exception as e:
                         self.logger.error(
                             "Failed to create agent",
@@ -424,11 +426,14 @@ Keep tasks focused and minimal. Prefer fewer, well-defined tasks over many small
                 task.status = TaskStatus.ASSIGNED
                 context.goal_context.agents_spawned += 1
 
-                self.logger.debug(
+                self.logger.info(
                     "Agent assigned to task",
                     task_id=task.id,
                     agent_id=agent.id,
                     agent_type=agent_type.value,
+                    agent_name=agent.name,
+                    selection_score=score,
+                    selection_rationale=rationale,
                 )
 
         # Decide execution pattern
@@ -524,10 +529,23 @@ Keep tasks focused and minimal. Prefer fewer, well-defined tasks over many small
 
         task.status = TaskStatus.IN_PROGRESS
         task.started_at = utc_now()
+        start_time_ms = int(task.started_at.timestamp() * 1000)
 
         try:
             result = await agent.execute(message)
             task.completed_at = utc_now()
+            execution_time_ms = int(task.completed_at.timestamp() * 1000) - start_time_ms
+
+            # Record task outcome for learning
+            await self.registry.record_task_outcome(
+                agent_id=agent.id,
+                task=task,
+                success=result.success,
+                tokens_used=result.tokens_used,
+                execution_time_ms=execution_time_ms,
+                error=result.error,
+            )
+
             return result
 
         except Exception as e:
@@ -537,6 +555,18 @@ Keep tasks focused and minimal. Prefer fewer, well-defined tasks over many small
                 agent_id=agent.id,
                 error=str(e),
             )
+            execution_time_ms = int(utc_now().timestamp() * 1000) - start_time_ms
+
+            # Record failed outcome for learning
+            await self.registry.record_task_outcome(
+                agent_id=agent.id,
+                task=task,
+                success=False,
+                tokens_used=0,
+                execution_time_ms=execution_time_ms,
+                error=str(e),
+            )
+
             return AgentResult(
                 task_id=task.id,
                 agent_id=agent.id,

@@ -383,6 +383,65 @@ flowchart LR
 | **Control Flow** | `REQUEST`, `RESPONSE`, `DELEGATE`, `ESCALATE` |
 | **Human Interaction** | `APPROVAL_REQUIRED`, `APPROVAL_GRANTED`, `APPROVAL_DENIED` |
 
+### Agent Learning & Persistence
+
+Agent Village now includes intelligent agent management with learning capabilities:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AgentManager                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │ AgentProfile │  │ AgentProfile │  │ AgentProfile │          │
+│  │              │  │              │  │              │          │
+│  │ Capabilities │  │ Capabilities │  │ Capabilities │          │
+│  │ Performance  │  │ Performance  │  │ Performance  │          │
+│  │ Specializ.   │  │ Specializ.   │  │ Specializ.   │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              Strategic Memory                            │   │
+│  │  - Past agent assignments                               │   │
+│  │  - Success/failure outcomes                             │   │
+│  │  - Lessons learned                                      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Features:**
+
+| Feature | Description |
+|---------|-------------|
+| **Intelligent Selection** | Agents scored based on capabilities, success rate, and task type |
+| **Performance Tracking** | Task outcomes recorded with execution time and token usage |
+| **Learning Loop** | Exponential moving average updates agent scores after each task |
+| **Strategic Memory** | Past decisions stored and queried for similar future tasks |
+| **Capability Matching** | Keywords in task matched against agent capabilities |
+| **Specialization** | Agents build expertise in specific task types over time |
+
+**Agent Scoring Algorithm:**
+
+```python
+score = (
+    0.4 * success_rate +           # Historical performance
+    0.3 * task_type_score +        # Task type specialization
+    0.2 * capability_match +       # Keyword matching
+    0.1 * recency_bonus            # Recent activity
+)
+```
+
+**Example Selection Output:**
+
+```
+Task: Execute a Python script to calculate statistics
+Type: analysis
+Top recommendations:
+   1. code_executor_1: score=1.00, success=100%
+      Rationale: High success rate (100%)
+   2. data_fetcher_1: score=0.87, success=67%
+      Rationale: Available for task
+```
+
 ---
 
 ## 🧠 Memory System

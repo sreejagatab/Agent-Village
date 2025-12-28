@@ -2,18 +2,22 @@
 Agent Registry for Agent Village.
 
 Manages agent lifecycle, discovery, and coordination.
+Integrates with AgentManager for persistence and learning.
 """
 
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Type
+from typing import TYPE_CHECKING, Any, Callable, Type
 
 import structlog
 
 from src.agents.base import AgentState, AgentType, BaseAgent
-from src.core.message import AgentMessage, MessageType, generate_id
+from src.core.message import AgentMessage, MessageType, Task, generate_id
 from src.providers.base import LLMProvider, ProviderPool
+
+if TYPE_CHECKING:
+    from src.core.agent_manager import AgentManager
 
 logger = structlog.get_logger()
 
@@ -48,15 +52,26 @@ class AgentRegistry:
     - Agent lifecycle management
     - Agent-to-agent message routing
     - Provider assignment
+    - Integration with AgentManager for persistence and learning
     """
 
-    def __init__(self, provider_pool: ProviderPool):
+    def __init__(
+        self,
+        provider_pool: ProviderPool,
+        agent_manager: "AgentManager | None" = None,
+    ):
         self.provider_pool = provider_pool
+        self.agent_manager = agent_manager
         self._agents: dict[str, AgentRegistration] = {}
         self._factories: dict[AgentType, AgentFactory] = {}
         self._message_handlers: dict[str, Callable] = {}
         self._lock = asyncio.Lock()
         self.logger = logger.bind(component="agent_registry")
+
+    def set_agent_manager(self, agent_manager: "AgentManager") -> None:
+        """Set the agent manager for persistence and learning."""
+        self.agent_manager = agent_manager
+        self.logger.info("AgentManager connected to registry")
 
     def register_factory(
         self,
@@ -126,6 +141,10 @@ class AgentRegistry:
         # Initialize and register
         await agent.initialize()
         await self.register(agent)
+
+        # Register with AgentManager for persistence and learning
+        if self.agent_manager:
+            await self.agent_manager.register_agent(agent)
 
         return agent
 
@@ -210,24 +229,99 @@ class AgentRegistry:
         self,
         agent_type: AgentType,
         task_description: str,
-    ) -> BaseAgent | None:
+        task: Task | None = None,
+    ) -> tuple[BaseAgent | None, float, str]:
         """
-        Find the best available agent for a task.
+        Find the best available agent for a task using intelligent scoring.
 
         Args:
             agent_type: Required agent type
             task_description: Description of the task
+            task: Optional Task object for more context
 
         Returns:
-            Best matching agent or None
+            Tuple of (best_agent, score, rationale)
         """
         available = self.get_available(agent_type)
         if not available:
-            return None
+            return None, 0.0, "No available agents"
 
-        # For now, return the first available
-        # TODO: Implement scoring based on agent capabilities and task
-        return available[0]
+        # Use AgentManager for intelligent selection if available
+        if self.agent_manager and task:
+            best_agent, score, rationale = await self.agent_manager.find_best_agent(
+                agent_type=agent_type,
+                task=task,
+                available_agents=available,
+            )
+            if best_agent:
+                return best_agent, score, rationale
+
+        # Fallback: Use simple scoring based on agent metrics
+        scored_agents = []
+        for agent in available:
+            score = self._calculate_agent_score(agent, task_description)
+            scored_agents.append((agent, score))
+
+        # Sort by score descending
+        scored_agents.sort(key=lambda x: x[1], reverse=True)
+        best_agent, best_score = scored_agents[0]
+
+        return best_agent, best_score, f"Selected based on availability and metrics (score: {best_score:.2f})"
+
+    def _calculate_agent_score(self, agent: BaseAgent, task_description: str) -> float:
+        """Calculate a simple score for an agent based on its metrics."""
+        score = 0.5  # Base score
+
+        # Factor in success rate from metrics
+        if agent.metrics.tasks_completed > 0:
+            success_rate = 1 - (agent.metrics.tasks_failed / agent.metrics.tasks_completed)
+            score += 0.3 * success_rate
+        else:
+            score += 0.3  # New agents get benefit of the doubt
+
+        # Factor in state (prefer idle agents)
+        if agent.state == AgentState.IDLE:
+            score += 0.2
+
+        return min(1.0, score)
+
+    async def record_task_outcome(
+        self,
+        agent_id: str,
+        task: Task,
+        success: bool,
+        tokens_used: int = 0,
+        execution_time_ms: int = 0,
+        error: str | None = None,
+    ) -> None:
+        """
+        Record the outcome of a task execution for learning.
+
+        Args:
+            agent_id: ID of the agent that executed the task
+            task: The executed task
+            success: Whether the task succeeded
+            tokens_used: Tokens consumed
+            execution_time_ms: Execution time
+            error: Error message if failed
+        """
+        # Update agent registration stats
+        registration = self._agents.get(agent_id)
+        if registration:
+            registration.task_count += 1
+            if not success:
+                registration.error_count += 1
+
+        # Record with AgentManager for learning
+        if self.agent_manager:
+            await self.agent_manager.record_task_outcome(
+                agent_id=agent_id,
+                task=task,
+                success=success,
+                tokens_used=tokens_used,
+                execution_time_ms=execution_time_ms,
+                error=error,
+            )
 
     async def route_message(self, message: AgentMessage) -> None:
         """
