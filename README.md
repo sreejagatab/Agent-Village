@@ -1340,6 +1340,73 @@ collected 154 items
 =============== 152 passed, 2 skipped in 1.25s ===============
 ```
 
+#### End-to-End System Test
+
+A comprehensive E2E test (`test_e2e_system.py`) validates all core components of the Agent-Civil system:
+
+```
+======================================================================
+AGENT-CIVIL END-TO-END SYSTEM TEST
+======================================================================
+
+[1/9] Testing Database Connection...
+  ✓ Database connected, 60 active agents in DB
+
+[2/9] Testing LLM Provider Pool...
+  ✓ Provider pool working with model: gpt-4o-mini
+
+[3/9] Testing Tool Registry...
+  ✓ Registered 19 tools in categories: {file, web, code, shell}
+
+[4/9] Testing Agent Registry & Spawning...
+  ✓ Spawned 4 agents: [E2E_Planner, E2E_ToolAgent, E2E_Critic, E2E_Evolver]
+
+[5/9] Testing Memory Systems...
+  ✓ All 4 memory systems operational (episodic, semantic, strategic, procedural)
+
+[6/9] Testing Agent Manager...
+  ✓ Agent Manager: 4 profiles, best match: E2E_ToolAgent (score: 1.00)
+
+[7/9] Testing FSM (Finite State Machine)...
+  ✓ FSM initialized: 15 states, context tracking working
+
+[8/9] Testing Governor...
+  ✓ Governor created with test goal and 2 tasks
+
+[9/9] Testing Safety Systems...
+  ✓ Safety gate: limits enforced, permissions checked
+
+======================================================================
+END-TO-END TEST RESULTS
+======================================================================
+  ✓ Database: PASS     - PostgreSQL connection, async sessions, repositories
+  ✓ Providers: PASS    - OpenAI provider pool with model routing
+  ✓ Tools: PASS        - 19 tools across 4 categories with permissions
+  ✓ Agents: PASS       - All 4 agent types spawn and initialize correctly
+  ✓ Memory: PASS       - Episodic, Semantic, Strategic, Procedural systems
+  ✓ AgentManager: PASS - Intelligent selection with capability matching
+  ✓ FSM: PASS          - 15 states with context and transition tracking
+  ✓ Governor: PASS     - Meta-agent orchestration with goal management
+  ✓ Safety: PASS       - Limits enforced, permission checking, tool validation
+
+Total: 9 passed, 0 failed
+======================================================================
+```
+
+**What the E2E Test Validates:**
+
+| Component | Verification |
+|-----------|-------------|
+| **Database** | PostgreSQL connection, async sessions, agent state persistence |
+| **Providers** | Provider pool creation, model registration, API key handling |
+| **Tools** | Registry population, 19 tools in 4 categories, permission system |
+| **Agents** | Factory registration, agent spawning, state initialization |
+| **Memory** | All 4 memory systems store and retrieve data correctly |
+| **AgentManager** | Profile creation, capability matching, intelligent selection |
+| **FSM** | State definitions, context tracking, transition recording |
+| **Governor** | Meta-agent creation, goal structure, task management |
+| **Safety** | Limit enforcement, permission checking, tool validation |
+
 #### Test Coverage by Module
 
 | Test File | Tests | Status | Description |
