@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.2-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.3-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1335,9 +1335,9 @@ pytest -m "not slow" -v
 ==================== test session starts ====================
 platform win32 -- Python 3.13.7, pytest-9.0.2
 plugins: anyio-4.12.0, asyncio-1.3.0, cov-7.0.0
-collected 154 items
+collected 177 items
 
-=============== 152 passed, 2 skipped in 1.25s ===============
+=============== 175 passed, 2 skipped in 1.75s ===============
 ```
 
 #### End-to-End System Test
@@ -1412,6 +1412,7 @@ Total: 9 passed, 0 failed
 | Test File | Tests | Status | Description |
 |-----------|-------|--------|-------------|
 | `test_agents.py` | 13 | ✅ Pass | Agent initialization, execution, reflection, metrics |
+| `test_api_features.py` | 23 | ✅ Pass | Memory routes, log streaming, monitoring UI |
 | `test_fsm.py` | 10 | ✅ Pass | State machine creation, transitions, handlers |
 | `test_memory.py` | 14 | ✅ Pass | Episodic, semantic, strategic, procedural memory |
 | `test_message.py` | 14 | ✅ Pass | Goals, tasks, constraints, agent messages |
@@ -1807,7 +1808,10 @@ agent-village/
 │   ├── api/                     # REST & WebSocket API
 │   │   ├── __init__.py
 │   │   ├── main.py             # FastAPI application
-│   │   └── websocket.py        # WebSocket handlers
+│   │   ├── websocket.py        # WebSocket handlers
+│   │   ├── memory_routes.py    # Memory search API
+│   │   ├── log_streaming.py    # Log streaming API
+│   │   └── monitoring.py       # Monitoring dashboard
 │   │
 │   ├── cli/                     # Command-line interface
 │   │   ├── __init__.py
@@ -1859,6 +1863,7 @@ agent-village/
 │   ├── __init__.py
 │   ├── conftest.py             # Pytest fixtures
 │   ├── test_agents.py
+│   ├── test_api_features.py    # Memory, logs, monitoring tests
 │   ├── test_fsm.py
 │   ├── test_memory.py
 │   ├── test_message.py
@@ -1999,17 +2004,126 @@ The following improvements were made based on real-world use case testing:
 - [x] Configuration management
 - [x] Docker and Kubernetes deployment
 - [x] CLI interface
-- [x] Test suite (152 tests)
+- [x] Test suite (175 tests)
 - [x] Web scraping and search tools
 - [x] Multi-task parallel execution with dependencies
 - [x] Error recovery with retry strategies
 - [x] Agent coordination and collaboration patterns
 
-#### 🔄 In Progress
+#### 🆕 New Features (v0.1.3)
 
-- [ ] Memory search API endpoint
-- [ ] Agent log streaming
-- [ ] Real-time agent monitoring UI
+**10. Memory Search API**
+- New **Memory Routes** (`/api/memory/*`) for searching and managing memories:
+  - `POST /api/memory/search` - Search across all memory types with filters
+  - `GET /api/memory/search` - GET variant with query parameters
+  - `POST /api/memory/store` - Store new memory entries
+  - `GET /api/memory/{type}/{id}` - Get specific memory entry
+  - `DELETE /api/memory/{type}/{id}` - Delete memory entry
+  - `GET /api/memory/stats` - Memory statistics
+  - `GET /api/memory/timeline` - Chronological event timeline
+  - `GET /api/memory/lessons` - Aggregated lessons learned
+- Supports filtering by: memory types, goal_id, agent_id, tags, importance, date range
+- Location: `src/api/memory_routes.py`
+
+**11. Agent Log Streaming**
+- New **Log Streaming API** (`/api/logs/*`) for real-time logs:
+  - `GET /api/logs` - Query recent logs with filtering
+  - `GET /api/logs/stats` - Log buffer statistics
+  - `GET /api/logs/agent/{agent_id}` - Logs for specific agent
+  - `GET /api/logs/goal/{goal_id}` - Logs for specific goal
+  - `WebSocket /api/logs/stream` - Real-time log streaming
+- **LogBuffer** - Ring buffer storing recent 10,000 log entries
+- **Log Levels**: DEBUG, INFO, WARNING, ERROR, CRITICAL
+- **Log Categories**: AGENT, GOAL, TASK, TOOL, MEMORY, SYSTEM, GOVERNOR, PROVIDER
+- Convenience functions: `log_info()`, `log_error()`, `log_warning()`, etc.
+- Location: `src/api/log_streaming.py`
+
+**12. Real-Time Monitoring Dashboard**
+- New **Monitoring UI** at `/monitor`:
+  - Live agent status and metrics
+  - Real-time log viewer with filters
+  - Active goals progress tracking
+  - Memory activity feed
+  - WebSocket-powered updates
+- Dark-themed responsive dashboard
+- Log filtering by level, category, search text
+- Auto-refresh with heartbeat monitoring
+- Location: `src/api/monitoring.py`
+
+**Test Results (v0.1.3):**
+
+Unit Tests:
+```
+Total: 175 tests passed, 2 skipped
+- TestMemoryRoutes: 6 tests
+- TestLogBuffer: 7 tests
+- TestLogEntry: 2 tests
+- TestLogEmitters: 2 tests
+- TestMonitoringDashboard: 4 tests
+- TestLogLevel/Category: 2 tests
+```
+
+End-to-End Tests (test_e2e_phase2.py):
+```
+======================================================================
+  AGENT-CIVIL PHASE 2 END-TO-END TEST
+======================================================================
+
+TEST 1: Memory Search API (8/8 tests)
+  [PASS] Memory stores initialized
+  [PASS] Store memory entry
+  [PASS] Search memory
+  [PASS] Get memory entry by ID
+  [PASS] Get memory stats
+  [PASS] Get timeline
+  [PASS] Get lessons learned
+  [PASS] Delete memory entry
+
+TEST 2: Agent Log Streaming (10/10 tests)
+  [PASS] Log buffer creation
+  [PASS] Log entry creation
+  [PASS] Append logs to buffer
+  [PASS] Filter logs by level
+  [PASS] Filter logs by category
+  [PASS] Log buffer stats
+  [PASS] Log subscription
+  [PASS] Log emit function
+  [PASS] Convenience log functions
+  [PASS] Log entry serialization
+
+TEST 3: Real-Time Monitoring UI (13/13 tests)
+  [PASS] Dashboard HTML exists (23,377 chars)
+  [PASS] Dashboard has agent panel
+  [PASS] Dashboard has log panel
+  [PASS] Dashboard has goals panel
+  [PASS] Dashboard has memory panel
+  [PASS] Dashboard has WebSocket code
+  [PASS] Dashboard has log streaming WS
+  [PASS] Dashboard has CSS styles
+  [PASS] Dashboard has JS state management
+  [PASS] Dashboard has render functions
+  [PASS] Dashboard has event handling
+  [PASS] Dashboard fetches initial data
+  [PASS] Monitor health endpoint
+
+TEST 4: Integration Tests (6/6 tests)
+  [PASS] Main app includes memory router
+  [PASS] Main app includes logs router
+  [PASS] Main app includes monitor router
+  [PASS] API module exports
+  [PASS] Memory stores are correct types
+  [PASS] Log streaming + WebSocket integration
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 37/37 E2E tests passed
+======================================================================
+```
+
+#### ✅ Recently Completed
+
+- [x] Memory search API endpoint
+- [x] Agent log streaming
+- [x] Real-time agent monitoring UI
 
 #### 📋 Planned
 
