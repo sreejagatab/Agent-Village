@@ -16,6 +16,10 @@
   Intelligent agent coordination with safety-first design, hierarchical memory, and enterprise-ready deployment
 </p>
 
+<p align="center">
+  <strong>📚 This repository contains comprehensive documentation and architecture specifications for the Agent Village system.</strong>
+</p>
+
 ---
 
 ## 📑 Table of Contents
@@ -1256,6 +1260,8 @@ kubectl scale deployment agent-village-worker --replicas=10 -n agent-village
 
 ## 🔧 Development
 
+> **Note:** The following sections describe the development setup and testing procedures for the complete Agent Village implementation.
+
 ### Setup
 
 **Prerequisites:**
@@ -1712,6 +1718,8 @@ pre-commit run --all-files
 ---
 
 ## 📁 Project Structure
+
+> **Note:** This is the reference architecture for the Agent Village system. The structure below represents the complete system design.
 
 ```
 agent-village/
