@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.9-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.10-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1901,11 +1901,17 @@ agent-village/
 │   │   ├── limiters.py         # Limiter algorithm implementations
 │   │   └── middleware.py       # FastAPI middleware and decorators
 │   │
-│   └── audit/                   # Audit logging system
+│   ├── audit/                   # Audit logging system
+│   │   ├── __init__.py
+│   │   ├── models.py           # Audit events and configuration
+│   │   ├── storage.py          # In-memory and file storage backends
+│   │   └── middleware.py       # FastAPI middleware and decorators
+│   │
+│   └── sso/                     # SSO integration
 │       ├── __init__.py
-│       ├── models.py           # Audit events and configuration
-│       ├── storage.py          # In-memory and file storage backends
-│       └── middleware.py       # FastAPI middleware and decorators
+│       ├── models.py           # SSO configuration and tokens
+│       ├── providers.py        # OAuth2, OIDC, SAML providers
+│       └── middleware.py       # FastAPI middleware and routes
 │
 ├── tests/                       # Test suite
 │   ├── __init__.py
@@ -1923,6 +1929,7 @@ agent-village/
 │   ├── test_tenancy.py          # Multi-tenancy tests
 │   ├── test_ratelimit.py        # Rate limiting tests
 │   ├── test_audit.py            # Audit logging tests
+│   ├── test_sso.py              # SSO integration tests
 │   ├── test_tools.py
 │   └── test_websocket.py
 │
@@ -2999,6 +3006,239 @@ OVERALL: PASSED - 51/51 Audit Logging tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.10) - SSO Integration
+
+**25. SSO Integration System**
+
+Full **SSO Integration System** (`src/sso/`) for enterprise authentication:
+- OAuth2 provider support with PKCE
+- OpenID Connect (OIDC) with ID token verification
+- SAML 2.0 SP-initiated flows
+- Pre-configured providers (Google, Microsoft, GitHub)
+- Session management with cookie-based authentication
+- Domain whitelist/blacklist restrictions
+- FastAPI middleware and route integration
+
+**SSO Provider Types:**
+- Location: `src/sso/models.py`
+```python
+class SSOProviderType(str, Enum):
+    OAUTH2 = "oauth2"   # Generic OAuth2
+    OIDC = "oidc"       # OpenID Connect
+    SAML = "saml"       # SAML 2.0
+
+class SSOProvider(str, Enum):
+    GOOGLE = "google"       # Google OAuth/OIDC
+    MICROSOFT = "microsoft" # Microsoft/Azure AD
+    GITHUB = "github"       # GitHub OAuth
+    OKTA = "okta"          # Okta OIDC/SAML
+    AUTH0 = "auth0"        # Auth0
+    AZURE_AD = "azure_ad"  # Azure Active Directory
+    ONELOGIN = "onelogin"  # OneLogin
+    CUSTOM = "custom"      # Custom provider
+```
+
+**SSO Architecture:**
+```
++------------------------------------------------------------------------------+
+|                           SSO Authentication Flow                            |
++------------------------------------------------------------------------------+
+|                                                                              |
+|   User         Application       SSO Provider      Identity Provider         |
+|    |               |                  |                    |                 |
+|    |--1. Login---->|                  |                    |                 |
+|    |               |--2. Auth URL---->|                    |                 |
+|    |<--------------+------------------+----3. Redirect---->|                 |
+|    |                                  |<---4. Authenticate-|                 |
+|    |<-----------5. Code/Token---------+                    |                 |
+|    |               |--6. Exchange---->|                    |                 |
+|    |               |<-7. Tokens-------|                    |                 |
+|    |<--8. Session--|                  |                    |                 |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+**SSO Configuration:**
+- Location: `src/sso/middleware.py`
+```python
+from src.sso import (
+    SSOConfig, SSOProviderConfig, SSOProviderType,
+    SSOManager, SSOMiddleware, sso_required, create_sso_routes,
+    GOOGLE_OAUTH_CONFIG, MICROSOFT_OAUTH_CONFIG, GITHUB_OAUTH_CONFIG,
+)
+
+# Configure SSO
+config = SSOConfig(
+    enabled=True,
+    default_provider_id="google",
+    allowed_domains=["company.com"],  # Only allow company domain
+    auto_create_user=True,            # JIT provisioning
+)
+
+# Add Google OAuth
+google = GOOGLE_OAUTH_CONFIG
+google.client_id = "your-client-id"
+google.client_secret = "your-client-secret"
+google.redirect_uri = "https://app.example.com/sso/callback/google"
+config.add_provider(google)
+
+# Initialize manager
+sso_manager = SSOManager(config)
+
+# Add middleware and routes
+app.add_middleware(SSOMiddleware, sso_manager=sso_manager)
+app.include_router(create_sso_routes(sso_manager))
+
+# Protect endpoints
+@app.get("/protected")
+@sso_required()
+async def protected_endpoint(request: Request):
+    user = request.state.sso_session.user
+    return {"email": user.email}
+```
+
+**SSO Routes:**
+```
++------------------------------------------------------------------------------+
+|                           SSO API Endpoints                                  |
++------------------------------------------------------------------------------+
+|  GET  /sso/providers              | List enabled SSO providers               |
+|  GET  /sso/login/{provider_id}    | Initiate SSO login flow                  |
+|  GET  /sso/callback/{provider_id} | OAuth2/OIDC callback handler             |
+|  POST /sso/callback/{provider_id}/saml | SAML callback handler              |
+|  GET  /sso/logout                 | Logout and clear session                 |
+|  GET  /sso/session                | Get current session info                 |
++------------------------------------------------------------------------------+
+```
+
+**Test Results (v0.1.10):**
+
+SSO Integration Tests (tests/test_sso.py):
+```
+======================================================================
+  SSO INTEGRATION TEST RESULTS
+======================================================================
+
+TestSSOProviderConfig (7/7 tests):
+  [PASS] test_create_oauth2_config
+  [PASS] test_create_oidc_config
+  [PASS] test_create_saml_config
+  [PASS] test_display_name_default
+  [PASS] test_display_name_custom
+  [PASS] test_to_dict_excludes_secrets
+  [PASS] test_default_scopes
+
+TestSSOUser (3/3 tests):
+  [PASS] test_create_user
+  [PASS] test_user_with_groups_and_roles
+  [PASS] test_user_to_dict
+
+TestSSOToken (5/5 tests):
+  [PASS] test_create_token
+  [PASS] test_token_is_expired
+  [PASS] test_token_not_expired
+  [PASS] test_token_no_expiration
+  [PASS] test_token_from_dict
+
+TestSSOSession (4/4 tests):
+  [PASS] test_create_session
+  [PASS] test_session_is_expired
+  [PASS] test_session_refresh
+  [PASS] test_session_to_dict
+
+TestSSOAuthRequest (3/3 tests):
+  [PASS] test_create_auth_request
+  [PASS] test_auth_request_expired
+  [PASS] test_auth_request_with_pkce
+
+TestSAMLAssertion (3/3 tests):
+  [PASS] test_create_assertion
+  [PASS] test_assertion_validity
+  [PASS] test_assertion_expired
+
+TestSSOConfig (9/9 tests):
+  [PASS] test_create_config
+  [PASS] test_add_provider
+  [PASS] test_get_enabled_providers
+  [PASS] test_domain_allowed_no_restrictions
+  [PASS] test_domain_allowed_whitelist
+  [PASS] test_domain_blocked
+  [PASS] test_domain_blocked_takes_precedence
+  [PASS] test_invalid_email_not_allowed
+
+TestPreConfiguredProviders (3/3 tests):
+  [PASS] test_google_config
+  [PASS] test_microsoft_config
+  [PASS] test_github_config
+
+TestOAuth2Provider (6/6 tests):
+  [PASS] test_get_authorization_url
+  [PASS] test_get_authorization_url_without_pkce
+  [PASS] test_generate_pkce
+  [PASS] test_exchange_code
+  [PASS] test_get_user_info
+  [PASS] test_refresh_token
+
+TestOIDCProvider (5/5 tests):
+  [PASS] test_get_authorization_url_with_nonce
+  [PASS] test_verify_id_token_valid
+  [PASS] test_verify_id_token_expired
+  [PASS] test_verify_id_token_invalid_nonce
+  [PASS] test_verify_id_token_invalid_audience
+
+TestSAMLProvider (5/5 tests):
+  [PASS] test_get_authorization_url
+  [PASS] test_exchange_code_not_implemented
+  [PASS] test_get_user_info_not_implemented
+  [PASS] test_process_response
+  [PASS] test_process_response_failed
+
+TestCreateProvider (3/3 tests):
+  [PASS] test_create_oauth2_provider
+  [PASS] test_create_oidc_provider
+  [PASS] test_create_saml_provider
+
+TestSSOSessionStore (8/8 tests):
+  [PASS] test_create_session
+  [PASS] test_get_session
+  [PASS] test_get_expired_session
+  [PASS] test_delete_session
+  [PASS] test_delete_nonexistent_session
+  [PASS] test_store_auth_request
+  [PASS] test_get_auth_request_removes_it
+  [PASS] test_cleanup_expired
+
+TestSSOManager (5/5 tests):
+  [PASS] test_get_provider
+  [PASS] test_get_nonexistent_provider
+  [PASS] test_start_login
+  [PASS] test_complete_login
+  [PASS] test_complete_login_invalid_state
+  [PASS] test_logout
+  [PASS] test_get_session
+
+TestSSOMiddleware (1/1 tests):
+  [PASS] test_middleware_exclude_paths
+
+TestSSORequiredDecorator (5/5 tests):
+  [PASS] test_decorator_allows_authenticated
+  [PASS] test_decorator_rejects_unauthenticated
+  [PASS] test_decorator_allows_anonymous
+  [PASS] test_decorator_rejects_expired_session
+  [PASS] test_decorator_preserves_function_name
+
+TestCreateSSORoutes (1/1 tests):
+  [PASS] test_create_routes
+
+TestSSOIntegration (2/2 tests):
+  [PASS] test_full_oauth2_flow
+  [PASS] test_domain_restriction
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 79/79 SSO Integration tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -3012,10 +3252,13 @@ OVERALL: PASSED - 51/51 Audit Logging tests passed
 - [x] Multi-tenancy support
 - [x] Rate limiting
 - [x] Audit logging
+- [x] SSO integration
 
 #### 📋 Planned
 
-- [ ] SSO integration
+- [ ] Multi-factor authentication (MFA)
+- [ ] Role-based access control (RBAC)
+- [ ] API key management
 
 ---
 

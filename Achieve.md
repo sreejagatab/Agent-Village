@@ -1078,6 +1078,12 @@ Execution:
 | | FastAPI middleware | Fully Implemented |
 | | Decorator-based auditing | Fully Implemented |
 | | Sensitive data masking | Fully Implemented |
+| **SSO Integration** | OAuth2 providers with PKCE | Fully Implemented |
+| | OpenID Connect (OIDC) | Fully Implemented |
+| | SAML 2.0 support | Fully Implemented |
+| | Pre-configured providers | Fully Implemented |
+| | Session management | Fully Implemented |
+| | Domain restrictions | Fully Implemented |
 
 ---
 
@@ -2043,6 +2049,194 @@ result = await logger.storage.query(AuditQuery(
 
 for event in result.events:
     print(f"{event.timestamp}: {event.event_type.value} - {event.description}")
+```
+
+---
+
+## SSO Integration System
+
+```
++------------------------------------------------------------------------------+
+|                          SSO Integration System                               |
++------------------------------------------------------------------------------+
+|                                                                              |
+|    +------------------------+     +------------------------+                 |
+|    |   OAuth2 Provider      |     |    OIDC Provider       |                 |
+|    |  - PKCE support        |     |  - ID token verify     |                 |
+|    |  - Token exchange      |     |  - JWKS validation     |                 |
+|    |  - User info fetch     |     |  - Claims extraction   |                 |
+|    +------------------------+     +------------------------+                 |
+|                |                            |                                |
+|                +-------------+--------------+                                |
+|                              |                                               |
+|                              v                                               |
+|    +--------------------------------------------------------+               |
+|    |                    SSO Manager                          |               |
+|    |  - Provider registry    - Session management           |               |
+|    |  - Auth flow handling   - Token refresh                |               |
+|    +--------------------------------------------------------+               |
+|                              |                                               |
+|                              v                                               |
+|    +------------------------+     +------------------------+                 |
+|    |   SSO Middleware       |     |    SSO Routes          |                 |
+|    |  - Session loading     |     |  - /login/{provider}   |                 |
+|    |  - Request state       |     |  - /callback           |                 |
+|    |  - Path exclusions     |     |  - /logout             |                 |
+|    +------------------------+     +------------------------+                 |
+|                              |                                               |
+|                              v                                               |
+|    +--------------------------------------------------------+               |
+|    |                  SAML Provider                          |               |
+|    |  - AuthnRequest generation  - Response parsing         |               |
+|    |  - Assertion extraction     - Attribute mapping        |               |
+|    +--------------------------------------------------------+               |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### SSO Authentication Flow
+
+```
++------------------------------------------------------------------------------+
+|                       SSO Authentication Flow                                 |
++------------------------------------------------------------------------------+
+|                                                                              |
+|  1. User clicks "Login with Google"                                          |
+|     |                                                                        |
+|     v                                                                        |
+|  2. Application generates auth URL with:                                     |
+|     - State (CSRF protection)                                                |
+|     - PKCE code challenge                                                    |
+|     - Requested scopes                                                       |
+|     |                                                                        |
+|     v                                                                        |
+|  3. User redirected to Identity Provider                                     |
+|     |                                                                        |
+|     v                                                                        |
+|  4. User authenticates with IdP                                              |
+|     |                                                                        |
+|     v                                                                        |
+|  5. IdP redirects back with authorization code                               |
+|     |                                                                        |
+|     v                                                                        |
+|  6. Application exchanges code for tokens:                                   |
+|     - Access token                                                           |
+|     - Refresh token                                                          |
+|     - ID token (OIDC)                                                        |
+|     |                                                                        |
+|     v                                                                        |
+|  7. Application fetches user info                                            |
+|     |                                                                        |
+|     v                                                                        |
+|  8. Domain validation (if configured)                                        |
+|     |                                                                        |
+|     v                                                                        |
+|  9. Session created with cookie                                              |
+|     |                                                                        |
+|     v                                                                        |
+|  10. User redirected to application                                          |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### Supported SSO Providers
+
+```
++------------------------------------------------------------------------------+
+|                       Supported SSO Providers                                 |
++------------------------------------------------------------------------------+
+|                                                                              |
+|  Pre-configured Templates:                                                   |
+|  +------------------+  +------------------+  +------------------+            |
+|  |     Google       |  |    Microsoft     |  |     GitHub       |            |
+|  |  OIDC Provider   |  |  OIDC Provider   |  |  OAuth2 Provider |            |
+|  |  ID: google      |  |  ID: microsoft   |  |  ID: github      |            |
+|  +------------------+  +------------------+  +------------------+            |
+|                                                                              |
+|  Enterprise Providers (configure manually):                                  |
+|  +------------------+  +------------------+  +------------------+            |
+|  |      Okta        |  |      Auth0       |  |    Azure AD      |            |
+|  |  OIDC or SAML    |  |  OIDC Provider   |  |  OIDC Provider   |            |
+|  +------------------+  +------------------+  +------------------+            |
+|                                                                              |
+|  +------------------+  +------------------+                                  |
+|  |    OneLogin      |  |     Custom       |                                  |
+|  |  SAML Provider   |  |   Any OAuth2     |                                  |
+|  +------------------+  +------------------+                                  |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### Using SSO Integration
+
+```python
+from src.sso import (
+    SSOConfig,
+    SSOProviderConfig,
+    SSOProviderType,
+    SSOManager,
+    SSOMiddleware,
+    sso_required,
+    create_sso_routes,
+    GOOGLE_OAUTH_CONFIG,
+)
+
+# 1. Create SSO configuration
+config = SSOConfig(
+    enabled=True,
+    default_provider_id="google",
+    allowed_domains=["yourcompany.com"],  # Restrict to company domain
+    blocked_domains=["competitor.com"],   # Block specific domains
+    auto_create_user=True,                # JIT user provisioning
+    session_cookie_secure=True,           # Secure cookies in production
+)
+
+# 2. Configure Google OAuth
+google_config = SSOProviderConfig(
+    provider_id="google",
+    provider_type=SSOProviderType.OIDC,
+    client_id=os.getenv("GOOGLE_CLIENT_ID"),
+    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    authorization_url="https://accounts.google.com/o/oauth2/v2/auth",
+    token_url="https://oauth2.googleapis.com/token",
+    userinfo_url="https://www.googleapis.com/oauth2/v3/userinfo",
+    scopes=["openid", "profile", "email"],
+    redirect_uri="https://app.example.com/sso/callback/google",
+)
+config.add_provider(google_config)
+
+# 3. Initialize SSO manager
+sso_manager = SSOManager(config)
+
+# 4. Add middleware to FastAPI app
+app.add_middleware(
+    SSOMiddleware,
+    sso_manager=sso_manager,
+    exclude_paths=["/health", "/metrics", "/docs"],
+)
+
+# 5. Include SSO routes
+app.include_router(create_sso_routes(sso_manager))
+
+# 6. Protect endpoints with decorator
+@app.get("/dashboard")
+@sso_required()
+async def dashboard(request: Request):
+    user = request.state.sso_session.user
+    return {
+        "email": user.email,
+        "name": user.name,
+        "provider": user.provider_id,
+    }
+
+# 7. Optional: Allow anonymous access with fallback
+@app.get("/api/public")
+@sso_required(allow_anonymous=True)
+async def public_endpoint(request: Request):
+    session = request.state.sso_session
+    if session:
+        return {"user": session.user.email, "authenticated": True}
+    return {"authenticated": False}
 ```
 
 ---
