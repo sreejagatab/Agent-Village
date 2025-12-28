@@ -1061,6 +1061,11 @@ Execution:
 | | Goal management UI | Fully Implemented |
 | | Agent activity tracking | Fully Implemented |
 | | WebSocket integration | Fully Implemented |
+| **Multi-tenancy** | Tenant models & tiers | Fully Implemented |
+| | Tenant context & middleware | Fully Implemented |
+| | Tenant quotas & limits | Fully Implemented |
+| | Tenant API endpoints | Fully Implemented |
+| | Tenant resolution strategies | Fully Implemented |
 
 ---
 
@@ -1495,6 +1500,202 @@ app = create_dashboard_app(config)
 |  +----------------------------------------------------------------+    |
 |                                                                          |
 +-------------------------------------------------------------------------+
+```
+
+---
+
+## Multi-tenancy Support
+
+### Tenant Architecture
+
+```
++-------------------------------------------------------------------------+
+|                       MULTI-TENANCY SYSTEM                               |
++-------------------------------------------------------------------------+
+|                                                                          |
+|   TENANT RESOLUTION MIDDLEWARE                                           |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  Request --> [Header] --> [API Key] --> [Subdomain] --> Tenant  |    |
+|   |               X-Tenant-ID   X-API-Key    tenant.domain.com      |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
+|   TENANT TIERS                                                           |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  +------------+  +------------+  +---------------+  +----------+ |   |
+|   |  |    FREE    |  |  STARTER   |  | PROFESSIONAL  |  |ENTERPRISE| |   |
+|   |  |            |  |            |  |               |  |          | |   |
+|   |  | 10 goals/d |  | 50 goals/d |  | 200 goals/d   |  | 10K/d    | |   |
+|   |  | 3 agents   |  | 5 agents   |  | 20 agents     |  | 100      | |   |
+|   |  | 10K tokens |  | 50K tokens |  | 200K tokens   |  | 10M      | |   |
+|   |  +------------+  +------------+  +---------------+  +----------+ |   |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
+|   TENANT CONTEXT                                                         |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  get_current_tenant() -----> TenantContext                      |    |
+|   |                                |                                |    |
+|   |                                +-- tenant: Tenant               |    |
+|   |                                +-- request_id: str              |    |
+|   |                                +-- tokens_used: int             |    |
+|   |                                +-- api_calls_made: int          |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
++-------------------------------------------------------------------------+
+```
+
+### Tenant Lifecycle
+
+```
++-------------------------------------------------------------------------+
+|                        TENANT LIFECYCLE                                  |
++-------------------------------------------------------------------------+
+|                                                                          |
+|   CREATE                    ACTIVE                    SUSPENDED          |
+|   +--------+               +--------+                +--------+          |
+|   | PENDING| ----+-------> | ACTIVE | ----+-------> |SUSPENDED|          |
+|   +--------+     |         +--------+     |         +--------+           |
+|       |          |             |          |             |                |
+|       |    approve()           |    suspend()           |                |
+|       |          |             |          |             |                |
+|       |          |             |          |       activate()             |
+|       |          |             |          |             |                |
+|       |          |             v          |             v                |
+|       |          |         +--------+     |         +--------+           |
+|       +----------+-------> | DELETED|<----+---------|        |           |
+|                            +--------+               +--------+           |
+|                                                                          |
+|   STATUS TRANSITIONS:                                                    |
+|   - PENDING -> ACTIVE: Account approved                                  |
+|   - ACTIVE -> SUSPENDED: Quota exceeded, billing issue, admin action     |
+|   - SUSPENDED -> ACTIVE: Issue resolved                                  |
+|   - Any -> DELETED: Account deleted                                      |
+|                                                                          |
++-------------------------------------------------------------------------+
+```
+
+### Tenant API Endpoints
+
+```
++------------------------------------------------------------------+
+|                       TENANT API                                  |
++------------------------------------------------------------------+
+|                                                                   |
+|  ADMIN ENDPOINTS                                                  |
+|  POST   /tenants                  -> Create new tenant            |
+|  GET    /tenants                  -> List all tenants             |
+|  GET    /tenants/{id}             -> Get tenant details           |
+|  PATCH  /tenants/{id}             -> Update tenant                |
+|  DELETE /tenants/{id}             -> Delete tenant                |
+|                                                                   |
+|  LIFECYCLE ENDPOINTS                                              |
+|  POST   /tenants/{id}/suspend     -> Suspend tenant               |
+|  POST   /tenants/{id}/activate    -> Activate tenant              |
+|  POST   /tenants/{id}/upgrade     -> Upgrade tier                 |
+|                                                                   |
+|  SECURITY ENDPOINTS                                               |
+|  POST   /tenants/{id}/api-key     -> Generate new API key         |
+|                                                                   |
+|  MONITORING ENDPOINTS                                             |
+|  GET    /tenants/{id}/stats       -> Usage statistics             |
+|  PATCH  /tenants/{id}/config      -> Update configuration         |
+|                                                                   |
+|  SELF-SERVICE ENDPOINTS                                           |
+|  GET    /tenants/me               -> Current tenant info          |
+|  GET    /tenants/me/stats         -> Current tenant stats         |
+|                                                                   |
++------------------------------------------------------------------+
+```
+
+### Tenant Quota System
+
+```
++-------------------------------------------------------------------------+
+|                        QUOTA MANAGEMENT                                  |
++-------------------------------------------------------------------------+
+|                                                                          |
+|   QUOTA TRACKING                                                         |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  TenantQuota                                                    |    |
+|   |  +----------------------------------------------------------+  |    |
+|   |  |  Resource        | Limit      | Used    | Remaining      |  |    |
+|   |  |------------------|------------|---------|----------------|  |    |
+|   |  |  Goals/Day       | 200        | 45      | 155 (77.5%)    |  |    |
+|   |  |  Tokens/Day      | 200,000    | 50,000  | 150,000 (75%)  |  |    |
+|   |  |  Agents          | 20         | 5       | 15 (75%)       |  |    |
+|   |  |  Workers         | 10         | 3       | 7 (70%)        |  |    |
+|   |  |  Storage (MB)    | 2,000      | 500     | 1,500 (75%)    |  |    |
+|   |  |  API Calls/Min   | 100        | 25      | 75 (75%)       |  |    |
+|   |  +----------------------------------------------------------+  |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
+|   QUOTA ENFORCEMENT                                                      |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  check_quota(goals=1) -----> (True, None)     # OK             |    |
+|   |  check_quota(goals=200) ---> (False, "Limit exceeded")         |    |
+|   |                                                                 |    |
+|   |  consume_quota(goals=1, tokens=500) -----> Updated quota       |    |
+|   |  consume_quota(...) raises TenantQuotaExceededError            |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
++-------------------------------------------------------------------------+
+```
+
+### Using Multi-tenancy
+
+```python
+from src.tenancy import (
+    create_tenant_app,
+    TenantMiddleware,
+    TenantService,
+    get_current_tenant,
+    tenant_context,
+)
+
+# 1. Add middleware to FastAPI app
+app.add_middleware(
+    TenantMiddleware,
+    tenant_resolver=service.resolve_tenant,
+    require_tenant=True,
+    exempt_paths=["/health", "/docs"],
+)
+
+# 2. Create tenants
+service = TenantService()
+tenant = await service.create_tenant(TenantCreate(
+    name="Acme Corp",
+    slug="acme",
+    tier=TenantTier.PROFESSIONAL,
+    owner_email="admin@acme.com",
+))
+
+# 3. Generate API key
+api_key = await service.generate_api_key(tenant.tenant_id)
+
+# 4. Access tenant context in requests
+@app.get("/my-endpoint")
+async def my_endpoint(request: Request):
+    tenant = get_current_tenant()
+    stats = await service.get_tenant_stats(tenant.tenant_id)
+    return {"tenant": tenant.name, "usage": stats}
+
+# 5. Check quotas before operations
+ok, reason = await service.check_quota(
+    tenant_id=tenant.tenant_id,
+    goals=1,
+    tokens=1000,
+)
+if not ok:
+    raise HTTPException(429, reason)
 ```
 
 ---

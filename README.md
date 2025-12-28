@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.6-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.7-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1880,10 +1880,19 @@ agent-village/
 │   │   ├── agents.py           # Agent plugin base
 │   │   └── tools.py            # Tool plugin base
 │   │
-│   └── dashboard/               # Web dashboard
+│   ├── dashboard/               # Web dashboard
+│   │   ├── __init__.py
+│   │   ├── app.py              # Dashboard FastAPI app
+│   │   └── routes.py           # Dashboard API routes
+│   │
+│   └── tenancy/                 # Multi-tenancy support
 │       ├── __init__.py
-│       ├── app.py              # Dashboard FastAPI app
-│       └── routes.py           # Dashboard API routes
+│       ├── models.py           # Tenant models and quotas
+│       ├── context.py          # Tenant context management
+│       ├── middleware.py       # Tenant resolution middleware
+│       ├── repository.py       # Tenant data access
+│       ├── service.py          # Tenant business logic
+│       └── api.py              # Tenant REST API
 │
 ├── tests/                       # Test suite
 │   ├── __init__.py
@@ -1898,6 +1907,7 @@ agent-village/
 │   ├── test_persistence.py
 │   ├── test_registry.py
 │   ├── test_safety.py
+│   ├── test_tenancy.py          # Multi-tenancy tests
 │   ├── test_tools.py
 │   └── test_websocket.py
 │
@@ -2428,6 +2438,145 @@ OVERALL: PASSED - 22/22 Dashboard tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.7) - Multi-tenancy
+
+**22. Multi-tenancy Support**
+- Full **Multi-tenancy System** (`src/tenancy/`) for SaaS deployments:
+  - **Tenant Models**: Tenant entity with tiers, quotas, configuration
+  - **Tenant Tiers**: FREE, STARTER, PROFESSIONAL, ENTERPRISE with tier-specific quotas
+  - **Tenant Quotas**: Goals/day, tokens/day, agents, workers, storage, API calls
+  - **Tenant Context**: Thread-safe tenant context with context managers
+  - **Tenant Middleware**: Resolve tenants from headers, API keys, subdomains
+  - **Tenant Repository**: CRUD operations with in-memory/database support
+  - **Tenant Service**: Business logic for tenant lifecycle, quotas, upgrades
+  - **Tenant API**: REST endpoints for tenant management
+- Location: `src/tenancy/`
+
+**23. Tenant Resolution Strategies**
+- Multiple strategies for tenant identification:
+  - **Header Resolution**: `X-Tenant-ID` header
+  - **API Key Resolution**: `X-API-Key` header or `api_key` query param
+  - **Subdomain Resolution**: Extract from subdomain (e.g., `tenant1.example.com`)
+  - **Path Resolution**: Extract from URL path (e.g., `/tenant/tenant1/...`)
+  - **Chained Resolution**: Try multiple strategies in order
+- Configurable exempt paths (e.g., `/health`, `/docs`)
+- Location: `src/tenancy/middleware.py`
+
+**24. Tenant Quotas & Limits**
+- Tier-based resource allocation:
+  | Tier | Goals/Day | Agents | Workers | Tokens/Day | API/Min |
+  |------|-----------|--------|---------|------------|---------|
+  | FREE | 10 | 3 | 2 | 10K | 10 |
+  | STARTER | 50 | 5 | 3 | 50K | 30 |
+  | PROFESSIONAL | 200 | 20 | 10 | 200K | 100 |
+  | ENTERPRISE | 10K | 100 | 50 | 10M | 1000 |
+- Real-time quota tracking and enforcement
+- Daily quota reset capability
+- Quota exceeded warnings and alerts
+- Location: `src/tenancy/models.py`
+
+**25. Tenant API Endpoints**
+- Complete REST API for tenant management:
+  - `POST /tenants` - Create new tenant
+  - `GET /tenants` - List tenants with filtering
+  - `GET /tenants/{id}` - Get tenant details
+  - `PATCH /tenants/{id}` - Update tenant
+  - `DELETE /tenants/{id}` - Delete tenant
+  - `POST /tenants/{id}/suspend` - Suspend tenant
+  - `POST /tenants/{id}/activate` - Activate tenant
+  - `POST /tenants/{id}/api-key` - Generate API key
+  - `GET /tenants/{id}/stats` - Get usage statistics
+  - `PATCH /tenants/{id}/config` - Update configuration
+  - `POST /tenants/{id}/upgrade` - Upgrade tier
+  - `GET /tenants/me` - Current tenant info
+- Location: `src/tenancy/api.py`
+
+**Test Results (v0.1.7):**
+
+Multi-tenancy Tests (tests/test_tenancy.py):
+```
+======================================================================
+  MULTI-TENANCY TEST RESULTS
+======================================================================
+
+TestTenantModels (16/16 tests):
+  [PASS] test_tenant_status_enum
+  [PASS] test_tenant_tier_enum
+  [PASS] test_tenant_quota_defaults
+  [PASS] test_tenant_quota_can_create_goal
+  [PASS] test_tenant_quota_can_use_tokens
+  [PASS] test_tenant_quota_can_spawn_agent
+  [PASS] test_tenant_config_defaults
+  [PASS] test_tenant_config_to_dict
+  [PASS] test_tenant_config_from_dict
+  [PASS] test_tenant_create
+  [PASS] test_tenant_tier_quotas
+  [PASS] test_tenant_is_active
+  [PASS] test_tenant_suspend_and_activate
+  [PASS] test_tenant_to_dict
+  [PASS] test_tenant_create_model
+  [PASS] test_tenant_update_model
+
+TestTenantContext (8/8 tests):
+  [PASS] test_get_set_current_tenant
+  [PASS] test_get_current_tenant_required_raises
+  [PASS] test_tenant_context_manager
+  [PASS] test_tenant_context_tracking
+  [PASS] test_tenant_context_can_proceed
+  [PASS] test_tenant_aware_mixin
+  [PASS] test_tenant_aware_validate_access
+  [PASS] test_tenant_scoped_value
+
+TestTenantResolutionStrategies (4/4 tests):
+  [PASS] test_header_resolution
+  [PASS] test_api_key_resolution
+  [PASS] test_chained_resolution
+  [PASS] test_hash_api_key
+
+TestTenantRepository (11/11 tests):
+  [PASS] test_create_tenant
+  [PASS] test_create_duplicate_slug_raises
+  [PASS] test_get_by_id
+  [PASS] test_get_by_slug
+  [PASS] test_resolve
+  [PASS] test_update_tenant
+  [PASS] test_delete_tenant
+  [PASS] test_list_all
+  [PASS] test_list_filtered
+  [PASS] test_update_quota_usage
+  [PASS] test_reset_daily_quotas
+
+TestTenantService (12/12 tests):
+  [PASS] test_create_tenant
+  [PASS] test_create_duplicate_slug_raises
+  [PASS] test_invalid_slug_raises
+  [PASS] test_get_tenant
+  [PASS] test_get_tenant_not_found
+  [PASS] test_update_tenant
+  [PASS] test_suspend_and_activate
+  [PASS] test_generate_api_key
+  [PASS] test_check_quota
+  [PASS] test_consume_quota_raises_when_exceeded
+  [PASS] test_get_tenant_stats
+  [PASS] test_upgrade_tier
+
+TestTenantAPI (10/10 tests):
+  [PASS] test_create_tenant_endpoint
+  [PASS] test_list_tenants_endpoint
+  [PASS] test_get_tenant_endpoint
+  [PASS] test_get_tenant_not_found
+  [PASS] test_update_tenant_endpoint
+  [PASS] test_suspend_tenant_endpoint
+  [PASS] test_activate_tenant_endpoint
+  [PASS] test_generate_api_key_endpoint
+  [PASS] test_get_tenant_stats_endpoint
+  [PASS] test_upgrade_tier_endpoint
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 61/61 Multi-tenancy tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -2438,10 +2587,10 @@ OVERALL: PASSED - 22/22 Dashboard tests passed
 - [x] Grafana dashboards
 - [x] Plugin system for custom agents
 - [x] Web dashboard (standalone)
+- [x] Multi-tenancy support
 
 #### 📋 Planned
 
-- [ ] Multi-tenancy support
 - [ ] Rate limiting
 - [ ] Audit logging
 - [ ] SSO integration
