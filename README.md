@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.10-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.11-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1907,11 +1907,17 @@ agent-village/
 │   │   ├── storage.py          # In-memory and file storage backends
 │   │   └── middleware.py       # FastAPI middleware and decorators
 │   │
-│   └── sso/                     # SSO integration
+│   ├── sso/                     # SSO integration
+│   │   ├── __init__.py
+│   │   ├── models.py           # SSO configuration and tokens
+│   │   ├── providers.py        # OAuth2, OIDC, SAML providers
+│   │   └── middleware.py       # FastAPI middleware and routes
+│   │
+│   └── rbac/                    # Role-Based Access Control
 │       ├── __init__.py
-│       ├── models.py           # SSO configuration and tokens
-│       ├── providers.py        # OAuth2, OIDC, SAML providers
-│       └── middleware.py       # FastAPI middleware and routes
+│       ├── models.py           # Permissions, roles, assignments
+│       ├── service.py          # RBAC service layer
+│       └── middleware.py       # FastAPI middleware and decorators
 │
 ├── tests/                       # Test suite
 │   ├── __init__.py
@@ -1930,6 +1936,7 @@ agent-village/
 │   ├── test_ratelimit.py        # Rate limiting tests
 │   ├── test_audit.py            # Audit logging tests
 │   ├── test_sso.py              # SSO integration tests
+│   ├── test_rbac.py             # RBAC tests
 │   ├── test_tools.py
 │   └── test_websocket.py
 │
@@ -3239,6 +3246,216 @@ OVERALL: PASSED - 79/79 SSO Integration tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.11) - Role-Based Access Control
+
+**26. RBAC System**
+
+Full **RBAC System** (`src/rbac/`) for fine-grained access control:
+- 40+ granular permissions across all resources
+- Built-in system roles (Admin, Tenant Admin, Operator, Viewer, Developer)
+- Custom role creation with tenant scoping
+- Time-based role assignments
+- Resource-scoped permissions
+- Role hierarchy with inheritance
+- Permission caching for performance
+- FastAPI middleware and decorators
+
+**Permission Categories:**
+- Location: `src/rbac/models.py`
+```python
+class Permission(str, Enum):
+    # Goal permissions
+    GOAL_CREATE = "goal:create"
+    GOAL_READ = "goal:read"
+    GOAL_UPDATE = "goal:update"
+    GOAL_DELETE = "goal:delete"
+    GOAL_EXECUTE = "goal:execute"
+
+    # Agent permissions
+    AGENT_CREATE = "agent:create"
+    AGENT_EXECUTE = "agent:execute"
+
+    # Admin permissions
+    ADMIN_FULL = "admin:full"
+    TENANT_MANAGE_USERS = "tenant:manage_users"
+    ROLE_ASSIGN = "role:assign"
+```
+
+**Built-in Roles:**
+```
++------------------------------------------------------------------------------+
+|                           Built-in System Roles                               |
++------------------------------------------------------------------------------+
+|  Role               | Permissions                                            |
++------------------------------------------------------------------------------+
+|  System Admin       | ADMIN_FULL (all permissions)                          |
+|  Tenant Admin       | Tenant management, user/role management, full ops     |
+|  Operator           | Goal/agent execution, tool use, memory access         |
+|  Viewer             | Read-only access to goals, agents, memory             |
+|  Developer          | Operator + plugin/tool development (inherits)         |
++------------------------------------------------------------------------------+
+```
+
+**RBAC Configuration:**
+- Location: `src/rbac/middleware.py`
+```python
+from src.rbac import (
+    RBACService, RBACMiddleware, RBACConfig,
+    require_permission, require_role, require_admin,
+    Permission, ResourceType,
+)
+
+# Configure RBAC
+config = RBACConfig(
+    enabled=True,
+    deny_by_default=True,
+    cache_ttl_seconds=300,
+    tenant_isolation=True,
+)
+
+# Initialize service
+rbac_service = RBACService(config)
+
+# Add middleware
+app.add_middleware(RBACMiddleware, rbac_service=rbac_service)
+
+# Protect endpoints with decorators
+@app.get("/goals/{goal_id}")
+@require_permission(Permission.GOAL_READ, ResourceType.GOAL, "goal_id")
+async def get_goal(request: Request, goal_id: str):
+    return {"goal_id": goal_id}
+
+@app.delete("/goals/{goal_id}")
+@require_any_permission([Permission.GOAL_DELETE, Permission.ADMIN_FULL])
+async def delete_goal(request: Request, goal_id: str):
+    pass
+
+@app.get("/admin/dashboard")
+@require_admin()
+async def admin_dashboard(request: Request):
+    pass
+```
+
+**RBAC Routes:**
+```
++------------------------------------------------------------------------------+
+|                           RBAC API Endpoints                                  |
++------------------------------------------------------------------------------+
+|  GET    /rbac/roles              | List all roles                            |
+|  POST   /rbac/roles              | Create a new role                         |
+|  GET    /rbac/roles/{id}         | Get role by ID                            |
+|  PATCH  /rbac/roles/{id}         | Update role                               |
+|  DELETE /rbac/roles/{id}         | Delete role                               |
+|  POST   /rbac/assignments        | Assign role to user                       |
+|  DELETE /rbac/assignments/{u}/{r}| Revoke role from user                     |
+|  GET    /rbac/users/{id}/roles   | Get user's roles                          |
+|  GET    /rbac/me/permissions     | Get current user's permissions            |
+|  GET    /rbac/permissions        | List all available permissions            |
++------------------------------------------------------------------------------+
+```
+
+**Test Results (v0.1.11):**
+
+RBAC Tests (tests/test_rbac.py):
+```
+======================================================================
+  RBAC TEST RESULTS
+======================================================================
+
+TestPermission (2/2 tests):
+  [PASS] test_permission_values
+  [PASS] test_all_permissions_exist
+
+TestResourceType (1/1 tests):
+  [PASS] test_resource_type_values
+
+TestPermissionGrant (8/8 tests):
+  [PASS] test_create_grant
+  [PASS] test_grant_matches_exact
+  [PASS] test_grant_matches_with_resource_type
+  [PASS] test_grant_matches_with_resource_id
+  [PASS] test_admin_grant_matches_all
+  [PASS] test_grant_to_dict
+  [PASS] test_grant_from_dict
+
+TestRole (7/7 tests):
+  [PASS] test_create_role
+  [PASS] test_role_add_permission
+  [PASS] test_role_add_permission_with_scope
+  [PASS] test_role_remove_permission
+  [PASS] test_role_to_dict
+  [PASS] test_role_from_dict
+
+TestRoleAssignment (3/3 tests):
+  [PASS] test_create_assignment
+  [PASS] test_assignment_time_validity
+  [PASS] test_assignment_to_dict
+
+TestUserPermissions (8/8 tests):
+  [PASS] test_create_user_permissions
+  [PASS] test_has_permission_from_role
+  [PASS] test_has_permission_admin_override
+  [PASS] test_has_any_permission
+  [PASS] test_has_all_permissions
+  [PASS] test_get_all_permissions
+  [PASS] test_disabled_role_not_effective
+  [PASS] test_to_dict
+
+TestBuiltinRoles (6/6 tests):
+  [PASS] test_admin_role
+  [PASS] test_tenant_admin_role
+  [PASS] test_operator_role
+  [PASS] test_viewer_role
+  [PASS] test_developer_role
+  [PASS] test_get_builtin_roles
+
+TestRBACStore (14/14 tests):
+  [PASS] test_builtin_roles_initialized
+  [PASS] test_create_role
+  [PASS] test_update_role
+  [PASS] test_delete_role
+  [PASS] test_list_roles
+  [PASS] test_assign_role
+  [PASS] test_revoke_role
+  [PASS] test_get_user_assignments
+  [PASS] test_get_user_permissions
+  [PASS] test_permission_caching
+  [PASS] test_clear_cache
+
+TestRBACService (15/15 tests):
+  [PASS] test_check_permission_granted
+  [PASS] test_check_permission_denied
+  [PASS] test_check_permission_raises
+  [PASS] test_create_custom_role
+  [PASS] test_create_tenant_role
+  [PASS] test_update_role
+  [PASS] test_add_permission_to_role
+  [PASS] test_remove_permission_from_role
+  [PASS] test_assign_role_to_user
+  [PASS] test_revoke_role_from_user
+  [PASS] test_get_user_roles
+  [PASS] test_is_admin
+  [PASS] test_tenant_isolation
+
+TestMiddleware & Decorators (12/12 tests):
+  [PASS] test_middleware_exclude_paths
+  [PASS] test_decorator_allows_with_permission
+  [PASS] test_decorator_denies_without_permission
+  [PASS] test_decorator_denies_unauthenticated
+  [PASS] test_require_any_permission tests
+  [PASS] test_require_all_permissions tests
+  [PASS] test_require_role tests
+
+TestRBACIntegration (3/3 tests):
+  [PASS] test_full_rbac_workflow
+  [PASS] test_tenant_scoped_permissions
+  [PASS] test_multiple_roles_combined
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 79/79 RBAC tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -3253,11 +3470,11 @@ OVERALL: PASSED - 79/79 SSO Integration tests passed
 - [x] Rate limiting
 - [x] Audit logging
 - [x] SSO integration
+- [x] Role-based access control (RBAC)
 
 #### 📋 Planned
 
 - [ ] Multi-factor authentication (MFA)
-- [ ] Role-based access control (RBAC)
 - [ ] API key management
 
 ---

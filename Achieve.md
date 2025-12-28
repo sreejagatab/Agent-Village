@@ -1084,6 +1084,13 @@ Execution:
 | | Pre-configured providers | Fully Implemented |
 | | Session management | Fully Implemented |
 | | Domain restrictions | Fully Implemented |
+| **RBAC System** | Fine-grained permissions (40+) | Fully Implemented |
+| | Built-in system roles | Fully Implemented |
+| | Role hierarchy & inheritance | Fully Implemented |
+| | Tenant-scoped roles | Fully Implemented |
+| | Time-based role validity | Fully Implemented |
+| | Permission caching | Fully Implemented |
+| | FastAPI middleware & decorators | Fully Implemented |
 
 ---
 
@@ -2237,6 +2244,268 @@ async def public_endpoint(request: Request):
     if session:
         return {"user": session.user.email, "authenticated": True}
     return {"authenticated": False}
+```
+
+---
+
+## Role-Based Access Control (RBAC)
+
+### RBAC Architecture
+
+```
++------------------------------------------------------------------------------+
+|                          RBAC System                                          |
++------------------------------------------------------------------------------+
+|                                                                              |
+|    +------------------------+     +------------------------+                 |
+|    |   Permission System    |     |     Role System        |                 |
+|    |  - 40+ permissions     |     |  - 5 built-in roles    |                 |
+|    |  - Resource scoped     |     |  - Role hierarchy      |                 |
+|    |  - Deny-by-default     |     |  - Inheritance         |                 |
+|    +------------------------+     +------------------------+                 |
+|                |                            |                                |
+|                +-------------+--------------+                                |
+|                              |                                               |
+|                              v                                               |
+|    +--------------------------------------------------------+               |
+|    |                    RBAC Service                         |               |
+|    |  - Permission checking    - Role management            |               |
+|    |  - Caching (TTL-based)    - Tenant isolation           |               |
+|    +--------------------------------------------------------+               |
+|                              |                                               |
+|                              v                                               |
+|    +------------------------+     +------------------------+                 |
+|    |   RBAC Middleware      |     |    RBAC Decorators     |                 |
+|    |  - Request interception|     |  - @require_permission |                 |
+|    |  - Permission loading  |     |  - @require_role       |                 |
+|    |  - Deny enforcement    |     |  - @require_admin      |                 |
+|    +------------------------+     +------------------------+                 |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### Permission Categories
+
+```
++------------------------------------------------------------------------------+
+|                        Permission Categories                                  |
++------------------------------------------------------------------------------+
+|                                                                              |
+|  GOAL PERMISSIONS           AGENT PERMISSIONS          TOOL PERMISSIONS      |
+|  +------------------+       +------------------+       +------------------+   |
+|  | goal:create      |       | agent:create     |       | tool:register    |   |
+|  | goal:read        |       | agent:read       |       | tool:read        |   |
+|  | goal:update      |       | agent:update     |       | tool:execute     |   |
+|  | goal:delete      |       | agent:delete     |       | tool:delete      |   |
+|  | goal:execute     |       | agent:spawn      |       +------------------+   |
+|  | goal:approve     |       | agent:terminate  |                              |
+|  +------------------+       +------------------+                              |
+|                                                                              |
+|  MEMORY PERMISSIONS         USER PERMISSIONS           ROLE PERMISSIONS      |
+|  +------------------+       +------------------+       +------------------+   |
+|  | memory:read      |       | user:create      |       | role:create      |   |
+|  | memory:write     |       | user:read        |       | role:read        |   |
+|  | memory:delete    |       | user:update      |       | role:update      |   |
+|  | memory:export    |       | user:delete      |       | role:delete      |   |
+|  +------------------+       +------------------+       | role:assign      |   |
+|                                                        +------------------+   |
+|                                                                              |
+|  TENANT PERMISSIONS         ADMIN PERMISSIONS                                |
+|  +------------------+       +------------------+                              |
+|  | tenant:read      |       | admin:read       |                              |
+|  | tenant:update    |       | admin:write      |                              |
+|  | tenant:manage    |       | admin:full       |                              |
+|  +------------------+       +------------------+                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### Built-in Roles
+
+```
++------------------------------------------------------------------------------+
+|                          Built-in System Roles                                |
++------------------------------------------------------------------------------+
+|                                                                              |
+|  SYSTEM ADMIN (admin:full)                                                   |
+|  +--------------------------------------------------------------------+     |
+|  |  All permissions - full system access                               |     |
+|  +--------------------------------------------------------------------+     |
+|                                                                              |
+|  TENANT ADMIN (tenant-scoped admin)                                          |
+|  +--------------------------------------------------------------------+     |
+|  |  All permissions within tenant context                              |     |
+|  |  - Goal, Agent, Tool, Memory, User, Role management                 |     |
+|  |  - Tenant configuration                                             |     |
+|  +--------------------------------------------------------------------+     |
+|                                                                              |
+|  OPERATOR (operational access)                                               |
+|  +--------------------------------------------------------------------+     |
+|  |  - Goal: create, read, update, execute, approve                     |     |
+|  |  - Agent: create, read, update, spawn, terminate                    |     |
+|  |  - Tool: read, execute                                              |     |
+|  |  - Memory: read, write                                              |     |
+|  +--------------------------------------------------------------------+     |
+|                                                                              |
+|  VIEWER (read-only access)                                                   |
+|  +--------------------------------------------------------------------+     |
+|  |  - Goal: read                                                        |     |
+|  |  - Agent: read                                                       |     |
+|  |  - Tool: read                                                        |     |
+|  |  - Memory: read                                                      |     |
+|  +--------------------------------------------------------------------+     |
+|                                                                              |
+|  DEVELOPER (inherits from Operator + extras)                                 |
+|  +--------------------------------------------------------------------+     |
+|  |  - All Operator permissions                                          |     |
+|  |  - Tool: register, delete                                            |     |
+|  |  - Memory: delete, export                                            |     |
+|  |  - Agent: delete                                                     |     |
+|  +--------------------------------------------------------------------+     |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### Role Hierarchy
+
+```
+                    +----------------+
+                    |  System Admin  |
+                    | (admin:full)   |
+                    +--------+-------+
+                             |
+             +---------------+---------------+
+             |                               |
+    +--------+--------+             +--------+--------+
+    |  Tenant Admin   |             |    Developer    |
+    | (tenant-scoped) |             | (extends Oper.) |
+    +--------+--------+             +--------+--------+
+             |                               |
+             +---------------+---------------+
+                             |
+                    +--------+--------+
+                    |    Operator     |
+                    | (operational)   |
+                    +--------+--------+
+                             |
+                    +--------+--------+
+                    |     Viewer      |
+                    |  (read-only)    |
+                    +-----------------+
+```
+
+### Permission Checking Flow
+
+```
++------------------------------------------------------------------------------+
+|                       Permission Checking Flow                                |
++------------------------------------------------------------------------------+
+|                                                                              |
+|   Request ──> Middleware ──> Load User Permissions ──> Check Permission      |
+|                                                               |              |
+|                                   +---------------------------+              |
+|                                   |                                          |
+|                                   v                                          |
+|                           +---------------+                                  |
+|                           |  Permission   |                                  |
+|                           |   Granted?    |                                  |
+|                           +-------+-------+                                  |
+|                                   |                                          |
+|                       +-----------+-----------+                              |
+|                       |                       |                              |
+|                      Yes                      No                             |
+|                       |                       |                              |
+|                       v                       v                              |
+|               +---------------+       +---------------+                      |
+|               |   Continue    |       |   403 Error   |                      |
+|               |   Request     |       | (Permission   |                      |
+|               +---------------+       |    Denied)    |                      |
+|                                       +---------------+                      |
+|                                                                              |
+|   Permission Check Steps:                                                    |
+|   1. Check cache for user permissions                                        |
+|   2. If cache miss, load from store                                          |
+|   3. Check if user has required permission                                   |
+|   4. Consider resource type and ID scoping                                   |
+|   5. Consider tenant isolation                                               |
+|   6. Return allow/deny decision                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### Using RBAC
+
+```python
+from src.rbac import (
+    RBACService,
+    RBACMiddleware,
+    Permission,
+    ResourceType,
+    RoleType,
+    require_permission,
+    require_role,
+    require_admin,
+    create_rbac_routes,
+    get_builtin_roles,
+)
+
+# 1. Initialize RBAC service
+rbac_service = RBACService()
+
+# 2. Create built-in roles
+for role in get_builtin_roles():
+    await rbac_service.create_role(role)
+
+# 3. Add RBAC middleware to FastAPI
+app.add_middleware(
+    RBACMiddleware,
+    rbac_service=rbac_service,
+    exclude_paths=["/health", "/docs", "/sso"],
+)
+
+# 4. Include RBAC routes
+app.include_router(create_rbac_routes(rbac_service))
+
+# 5. Use permission decorators
+@app.get("/goals/{goal_id}")
+@require_permission(Permission.GOAL_READ, ResourceType.GOAL, "goal_id")
+async def get_goal(request: Request, goal_id: str):
+    return {"goal_id": goal_id}
+
+@app.post("/goals")
+@require_permission(Permission.GOAL_CREATE)
+async def create_goal(request: Request, data: GoalCreate):
+    return {"id": "goal-123"}
+
+# 6. Use role decorators
+@app.get("/admin/dashboard")
+@require_admin()
+async def admin_dashboard(request: Request):
+    return {"admin": True}
+
+@app.post("/tenant/settings")
+@require_role(RoleType.TENANT_ADMIN)
+async def update_tenant_settings(request: Request):
+    return {"updated": True}
+
+# 7. Assign roles to users
+await rbac_service.assign_role(
+    user_id="user-123",
+    role_id="operator",
+    tenant_id="tenant-456",
+    granted_by="admin",
+)
+
+# 8. Check permissions programmatically
+allowed = await rbac_service.check_permission(
+    user_id="user-123",
+    permission=Permission.GOAL_CREATE,
+    tenant_id="tenant-456",
+    raise_on_denied=False,
+)
+if allowed:
+    # Proceed with operation
+    pass
 ```
 
 ---
