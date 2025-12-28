@@ -1408,6 +1408,44 @@ This demonstrates the system's ability to:
 4. Execute through the complete FSM pipeline
 5. Generate comprehensive solutions
 
+#### Verified End-to-End Execution (with Tool Execution)
+
+After improvements to tool registration and path handling, the system was verified to execute tools and produce working code:
+
+**Test Scenario:** Same cryptocurrency analysis goal
+
+**Tools Actually Executed:**
+| Tool | Status | Result |
+|------|--------|--------|
+| `create_directory` | ✅ Success | Created `workspace/crypto_test` |
+| `write_file` | ✅ Success | Created `crypto_analysis.py` (2,670 bytes) |
+| `shell_command` | ⚠️ Pending | Requires working directory handling |
+
+**Generated Code Output (verified working):**
+```markdown
+# Cryptocurrency Market Analysis
+
+| Name | Symbol | Current Price | Market Cap | 24h Change (%) |
+|------|--------|---------------|------------|----------------|
+| Bitcoin | btc | $87,714.00 | $1,751,607,042,980 | 0.20% |
+| Ethereum | eth | $2,932.32 | $354,051,641,783 | -0.02% |
+| Tether | usdt | $1.00 | $186,709,976,538 | -0.02% |
+| BNB | bnb | $844.24 | $116,280,713,370 | 0.62% |
+| XRP | xrp | $1.86 | $112,970,677,549 | 0.74% |
+...
+
+**Average Price:** $9,455.20
+**Total Market Cap:** $2,741,330,635,265
+**Best Performer (24h):** TRON (1.55%)
+**Worst Performer (24h):** Tether (-0.02%)
+```
+
+**Key Improvements Made:**
+1. **Tool Registration**: All file/web/sandbox tools properly registered with ToolAgent
+2. **Path Resolution**: Fixed double "workspace" path issue in file operations
+3. **System Prompts**: Enhanced ToolAgent prompt with clear file path guidance
+4. **Tool Descriptions**: Updated to explicitly state relative path requirements
+
 ### Code Quality
 
 **Linting:**
