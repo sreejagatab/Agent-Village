@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.5-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.6-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1871,14 +1871,19 @@ agent-village/
 │   │   ├── middleware.py       # FastAPI middleware
 │   │   └── routes.py           # Metrics API endpoints
 │   │
-│   └── plugins/                 # Plugin system
+│   ├── plugins/                 # Plugin system
+│   │   ├── __init__.py
+│   │   ├── base.py             # Plugin base classes
+│   │   ├── registry.py         # Plugin registry
+│   │   ├── loader.py           # Plugin loader
+│   │   ├── hooks.py            # Event hook system
+│   │   ├── agents.py           # Agent plugin base
+│   │   └── tools.py            # Tool plugin base
+│   │
+│   └── dashboard/               # Web dashboard
 │       ├── __init__.py
-│       ├── base.py             # Plugin base classes
-│       ├── registry.py         # Plugin registry
-│       ├── loader.py           # Plugin loader
-│       ├── hooks.py            # Event hook system
-│       ├── agents.py           # Agent plugin base
-│       └── tools.py            # Tool plugin base
+│       ├── app.py              # Dashboard FastAPI app
+│       └── routes.py           # Dashboard API routes
 │
 ├── tests/                       # Test suite
 │   ├── __init__.py
@@ -2361,6 +2366,68 @@ OVERALL: PASSED - 36/36 Plugin tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.6) - Web Dashboard
+
+**21. Standalone Web Dashboard**
+- Full **Web Dashboard** (`src/dashboard/`) for monitoring and management:
+  - **Real-time Stats**: Active goals, agents, workers, success rate
+  - **Goal Management**: Submit new goals directly from UI
+  - **Goal Tracking**: Live goal list with status badges
+  - **Agent Monitoring**: Active agents with task counts
+  - **Log Streaming**: Real-time system logs
+  - **WebSocket Integration**: Live updates via WebSocket
+  - **Dark Theme**: Professional dark UI design
+  - **Responsive Layout**: Works on desktop and mobile
+- **Dashboard API**: `/dashboard/stats`, `/dashboard/goals`, `/dashboard/agents`
+- **Widget Endpoints**: HTML fragments for dynamic loading
+- **Configuration**: Customizable title, API URLs, refresh interval, theme
+- Location: `src/dashboard/app.py`, `src/dashboard/routes.py`
+
+**Test Results (v0.1.6):**
+
+Dashboard Tests (tests/test_dashboard.py):
+```
+======================================================================
+  WEB DASHBOARD TEST RESULTS
+======================================================================
+
+TestDashboardConfig (2/2 tests):
+  [PASS] test_default_config
+  [PASS] test_custom_config
+
+TestDashboardApp (4/4 tests):
+  [PASS] test_create_dashboard_app
+  [PASS] test_dashboard_health_endpoint
+  [PASS] test_dashboard_index_endpoint
+  [PASS] test_dashboard_html_contains_config
+
+TestDashboardRoutes (8/8 tests):
+  [PASS] test_get_stats
+  [PASS] test_get_goals
+  [PASS] test_get_agents
+  [PASS] test_get_config
+  [PASS] test_get_goals_widget
+  [PASS] test_get_agents_widget
+  [PASS] test_get_metrics_widget
+  [PASS] test_update_settings
+
+TestDashboardModels (3/3 tests):
+  [PASS] test_dashboard_stats_model
+  [PASS] test_goal_summary_model
+  [PASS] test_agent_summary_model
+
+TestDashboardHTML (5/5 tests):
+  [PASS] test_html_structure
+  [PASS] test_html_contains_styles
+  [PASS] test_html_contains_javascript
+  [PASS] test_html_contains_ui_elements
+  [PASS] test_html_contains_config_values
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 22/22 Dashboard tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -2370,10 +2437,10 @@ OVERALL: PASSED - 36/36 Plugin tests passed
 - [x] Prometheus metrics
 - [x] Grafana dashboards
 - [x] Plugin system for custom agents
+- [x] Web dashboard (standalone)
 
 #### 📋 Planned
 
-- [ ] Web dashboard (standalone)
 - [ ] Multi-tenancy support
 - [ ] Rate limiting
 - [ ] Audit logging

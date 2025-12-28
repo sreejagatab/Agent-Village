@@ -1056,6 +1056,11 @@ Execution:
 | | Tool plugins | Fully Implemented |
 | | Hook system | Fully Implemented |
 | | Plugin loader | Fully Implemented |
+| **Web Dashboard** | Standalone dashboard | Fully Implemented |
+| | Real-time monitoring | Fully Implemented |
+| | Goal management UI | Fully Implemented |
+| | Agent activity tracking | Fully Implemented |
+| | WebSocket integration | Fully Implemented |
 
 ---
 
@@ -1359,6 +1364,137 @@ class MyToolPlugin(ToolPlugin):
     async def execute(self, tool_name, **kwargs):
         if tool_name == "my_tool":
             return {"result": "Tool executed"}
+```
+
+---
+
+## Web Dashboard
+
+### Dashboard Architecture
+
+```
++-------------------------------------------------------------------------+
+|                          WEB DASHBOARD                                   |
++-------------------------------------------------------------------------+
+|                                                                          |
+|   STANDALONE FASTAPI APPLICATION                                         |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  create_dashboard_app()                                         |    |
+|   |  - Configurable via DashboardConfig                             |    |
+|   |  - Embedded HTML/CSS/JavaScript                                 |    |
+|   |  - No external dependencies                                     |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
+|   DASHBOARD FEATURES                                                     |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  +------------------+  +------------------+  +------------------+ |   |
+|   |  |   GOAL MGMT     |  |  AGENT MONITOR  |  |   METRICS VIEW   | |   |
+|   |  |                  |  |                  |  |                  | |   |
+|   |  | - Submit goals   |  | - Active agents  |  | - System stats   | |   |
+|   |  | - Track progress |  | - Status view    |  | - Success rates  | |   |
+|   |  | - View results   |  | - Task counts    |  | - Uptime         | |   |
+|   |  +------------------+  +------------------+  +------------------+ |   |
+|   |                                                                 |    |
+|   |  +------------------+  +------------------+  +------------------+ |   |
+|   |  |   LOG STREAM    |  |   SETTINGS      |  |  WEBSOCKET       | |   |
+|   |  |                  |  |                  |  |                  | |   |
+|   |  | - Real-time logs |  | - Theme toggle   |  | - Live updates   | |   |
+|   |  | - Auto-scroll    |  | - Refresh rate   |  | - Event stream   | |   |
+|   |  | - Log filtering  |  | - URL config     |  | - Reconnect      | |   |
+|   |  +------------------+  +------------------+  +------------------+ |   |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
++-------------------------------------------------------------------------+
+```
+
+### Dashboard Endpoints
+
+```
++------------------------------------------------------------------+
+|                     DASHBOARD API                                 |
++------------------------------------------------------------------+
+|                                                                   |
+|  GET  /                           -> Dashboard HTML page          |
+|  GET  /health                     -> Service health check         |
+|                                                                   |
+|  GET  /dashboard/stats            -> System statistics            |
+|  GET  /dashboard/goals            -> Recent goals list            |
+|  GET  /dashboard/agents           -> Active agents list           |
+|  GET  /dashboard/config           -> Dashboard configuration      |
+|                                                                   |
+|  GET  /dashboard/widgets/goals    -> Goals widget HTML            |
+|  GET  /dashboard/widgets/agents   -> Agents widget HTML           |
+|  GET  /dashboard/widgets/metrics  -> Metrics widget HTML          |
+|                                                                   |
+|  POST /dashboard/settings         -> Update settings              |
+|                                                                   |
++------------------------------------------------------------------+
+```
+
+### Dashboard Configuration
+
+```python
+from src.dashboard import create_dashboard_app, DashboardConfig
+
+# Create with custom configuration
+config = DashboardConfig(
+    title="My Agent Dashboard",
+    api_base_url="http://api.example.com",
+    ws_base_url="wss://api.example.com",
+    refresh_interval=5000,  # ms
+    theme="dark",  # or "light"
+    show_metrics=True,
+    show_logs=True,
+    show_agents=True,
+    show_goals=True,
+)
+
+app = create_dashboard_app(config)
+```
+
+### Dashboard UI Features
+
+```
++-------------------------------------------------------------------------+
+|                        DASHBOARD UI                                      |
++-------------------------------------------------------------------------+
+|                                                                          |
+|  HEADER                                                                  |
+|  +----------------------------------------------------------------+    |
+|  |  Agent Village Dashboard                     [Theme] [Settings] |    |
+|  +----------------------------------------------------------------+    |
+|                                                                          |
+|  STATS GRID                                                              |
+|  +----------------------------------------------------------------+    |
+|  |  [Goals: 5]  [Agents: 3]  [Workers: 10]  [Success: 95%]        |    |
+|  +----------------------------------------------------------------+    |
+|                                                                          |
+|  MAIN CONTENT                                                            |
+|  +-----------------------------+  +-----------------------------+       |
+|  |       GOAL PANEL            |  |      AGENT PANEL            |       |
+|  +-----------------------------+  +-----------------------------+       |
+|  |  +---------------------+    |  |  +---------------------+    |       |
+|  |  | Goal Input Form     |    |  |  | Agent: tool-001     |    |       |
+|  |  +---------------------+    |  |  | Status: busy        |    |       |
+|  |  | Active Goals        |    |  |  | Tasks: 2            |    |       |
+|  |  | - Goal 1 [running]  |    |  |  +---------------------+    |       |
+|  |  | - Goal 2 [pending]  |    |  |  | Agent: planner-001  |    |       |
+|  |  | - Goal 3 [complete] |    |  |  | Status: idle        |    |       |
+|  |  +---------------------+    |  |  | Tasks: 0            |    |       |
+|  +-----------------------------+  +-----------------------------+       |
+|                                                                          |
+|  LOG PANEL                                                               |
+|  +----------------------------------------------------------------+    |
+|  |  [INFO] Goal goal-123 submitted                                 |    |
+|  |  [INFO] Agent tool-001 spawned                                  |    |
+|  |  [INFO] Task task-456 completed                                 |    |
+|  +----------------------------------------------------------------+    |
+|                                                                          |
++-------------------------------------------------------------------------+
 ```
 
 ---
