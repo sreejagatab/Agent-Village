@@ -1051,6 +1051,11 @@ Execution:
 | | Grafana dashboards | Fully Implemented |
 | | Load balancing | Fully Implemented |
 | | Worker health monitoring | Fully Implemented |
+| **Extensibility** | Plugin system | Fully Implemented |
+| | Agent plugins | Fully Implemented |
+| | Tool plugins | Fully Implemented |
+| | Hook system | Fully Implemented |
+| | Plugin loader | Fully Implemented |
 
 ---
 
@@ -1199,6 +1204,161 @@ Execution:
 |   +----------------------------------------------------------------+    |
 |                                                                          |
 +-------------------------------------------------------------------------+
+```
+
+---
+
+## Plugin System
+
+### Plugin Architecture
+
+```
++-------------------------------------------------------------------------+
+|                          PLUGIN SYSTEM                                   |
++-------------------------------------------------------------------------+
+|                                                                          |
+|   PLUGIN REGISTRY                                                        |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  register_class() -> Load plugin class                         |    |
+|   |  load()           -> Initialize plugin instance                 |    |
+|   |  unload()         -> Shutdown and remove plugin                 |    |
+|   |  get_by_type()    -> Find plugins by type                       |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
+|   PLUGIN LOADER                                                          |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  Sources:                                                       |    |
+|   |  - Python modules (importlib)                                   |    |
+|   |  - File paths (.py files)                                       |    |
+|   |  - Directories (recursive scan)                                 |    |
+|   |  - Entry points (pkg_resources)                                 |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
+|   PLUGIN TYPES                                                           |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  +-------------+  +-------------+  +-------------+              |    |
+|   |  |   AGENT     |  |    TOOL     |  |   MEMORY    |              |    |
+|   |  |  PLUGINS    |  |   PLUGINS   |  |   PLUGINS   |              |    |
+|   |  +-------------+  +-------------+  +-------------+              |    |
+|   |                                                                 |    |
+|   |  +-------------+  +-------------+  +-------------+              |    |
+|   |  |  PROVIDER   |  |    HOOK     |  | MIDDLEWARE  |              |    |
+|   |  |   PLUGINS   |  |   PLUGINS   |  |   PLUGINS   |              |    |
+|   |  +-------------+  +-------------+  +-------------+              |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
++-------------------------------------------------------------------------+
+```
+
+### Hook System
+
+```
++-------------------------------------------------------------------------+
+|                           HOOK SYSTEM                                    |
++-------------------------------------------------------------------------+
+|                                                                          |
+|   HOOK MANAGER                                                           |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  register()   -> Add hook handler                               |    |
+|   |  unregister() -> Remove hook handler                            |    |
+|   |  emit()       -> Trigger hooks (async)                          |    |
+|   |  emit_sync()  -> Trigger hooks (sync)                           |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
+|   HOOK LIFECYCLE                                                         |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |   Event Emitted                                                 |    |
+|   |         |                                                       |    |
+|   |         v                                                       |    |
+|   |   +-------------------+                                         |    |
+|   |   | Sort by Priority  |  (HIGHEST -> LOWEST)                    |    |
+|   |   +-------------------+                                         |    |
+|   |         |                                                       |    |
+|   |         v                                                       |    |
+|   |   +-------------------+                                         |    |
+|   |   | Execute Handlers  | -----> Handler can cancel               |    |
+|   |   +-------------------+        further execution                 |    |
+|   |         |                                                       |    |
+|   |         v                                                       |    |
+|   |   +-------------------+                                         |    |
+|   |   | Collect Results   |                                         |    |
+|   |   +-------------------+                                         |    |
+|   |         |                                                       |    |
+|   |         v                                                       |    |
+|   |   Return HookContext with all results                           |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
++-------------------------------------------------------------------------+
+```
+
+### Creating Custom Plugins
+
+```python
+# Example: Custom Agent Plugin
+from src.plugins import (
+    AgentPlugin,
+    AgentPluginConfig,
+    plugin_metadata,
+    PluginType,
+)
+
+@plugin_metadata(
+    name="my-custom-agent",
+    version="1.0.0",
+    description="My custom agent for data analysis",
+    plugin_type=PluginType.AGENT,
+)
+class MyCustomAgent(AgentPlugin):
+    @property
+    def agent_config(self) -> AgentPluginConfig:
+        return AgentPluginConfig(
+            capabilities=["data_analysis", "reporting"],
+            system_prompt="You are a data analysis expert...",
+        )
+
+    async def execute(self, task, context):
+        # Your implementation here
+        return {"success": True, "output": "Analysis complete"}
+
+# Example: Custom Tool Plugin
+from src.plugins import (
+    ToolPlugin,
+    ToolDefinition,
+    ToolParameter,
+)
+
+@plugin_metadata(
+    name="my-tools",
+    version="1.0.0",
+    description="My custom tools",
+    plugin_type=PluginType.TOOL,
+)
+class MyToolPlugin(ToolPlugin):
+    @property
+    def tool_definitions(self):
+        return [
+            ToolDefinition(
+                name="my_tool",
+                description="Does something useful",
+                parameters=[
+                    ToolParameter(name="input", description="Input data"),
+                ],
+            ),
+        ]
+
+    async def execute(self, tool_name, **kwargs):
+        if tool_name == "my_tool":
+            return {"result": "Tool executed"}
 ```
 
 ---

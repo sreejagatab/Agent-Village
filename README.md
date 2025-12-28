@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.4-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.5-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1865,17 +1865,28 @@ agent-village/
 │   │   ├── distributed.py      # Distributed worker system
 │   │   └── tasks.py            # Celery tasks
 │   │
-│   └── metrics/                 # Prometheus metrics
+│   ├── metrics/                 # Prometheus metrics
+│   │   ├── __init__.py
+│   │   ├── prometheus.py       # Metric definitions
+│   │   ├── middleware.py       # FastAPI middleware
+│   │   └── routes.py           # Metrics API endpoints
+│   │
+│   └── plugins/                 # Plugin system
 │       ├── __init__.py
-│       ├── prometheus.py       # Metric definitions
-│       ├── middleware.py       # FastAPI middleware
-│       └── routes.py           # Metrics API endpoints
+│       ├── base.py             # Plugin base classes
+│       ├── registry.py         # Plugin registry
+│       ├── loader.py           # Plugin loader
+│       ├── hooks.py            # Event hook system
+│       ├── agents.py           # Agent plugin base
+│       └── tools.py            # Tool plugin base
 │
 ├── tests/                       # Test suite
 │   ├── __init__.py
 │   ├── conftest.py             # Pytest fixtures
 │   ├── test_agents.py
 │   ├── test_api_features.py    # Memory, logs, monitoring tests
+│   ├── test_infrastructure.py  # Distributed workers, metrics tests
+│   ├── test_plugins.py         # Plugin system tests
 │   ├── test_fsm.py
 │   ├── test_memory.py
 │   ├── test_message.py
@@ -2245,6 +2256,111 @@ OVERALL: PASSED - 33/33 Infrastructure tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.5) - Extensibility Phase
+
+**17. Plugin System**
+- Full **Plugin System** (`src/plugins/`) for extending Agent Village:
+  - **Plugin Base Classes**: `Plugin`, `AgentPlugin`, `ToolPlugin` with lifecycle management
+  - **Plugin Registry**: Central registration, dependency resolution, load/unload
+  - **Plugin Loader**: Load from modules, files, directories, and entry points
+  - **Hook System**: Event-driven extension with priority-based execution
+  - **Plugin Types**: agent, tool, memory, provider, hook, middleware
+  - **Plugin States**: unloaded, loading, loaded, initializing, active, stopping, stopped, error
+- Location: `src/plugins/`
+
+**18. Hook System**
+- Event hooks for extending functionality at key points:
+  - **Goal Lifecycle**: before/after_goal_execution, on_goal_created/completed/failed
+  - **Task Lifecycle**: before/after_task_execution, on_task_created/completed/failed
+  - **Agent Lifecycle**: on_agent_spawn, on_agent_terminate, on_agent_message
+  - **Memory Operations**: on_memory_store, on_memory_retrieve
+  - **Tool Operations**: before/after_tool_call
+  - **System Events**: on_error, on_warning, on_startup, on_shutdown
+- Decorator-based registration with priority support
+- Location: `src/plugins/hooks.py`
+
+**19. Agent Plugins**
+- Create custom agents with:
+  - Capability declarations
+  - LLM provider/model configuration
+  - System prompts
+  - Task scoring and execution
+  - Performance tracking
+- Example: `ExampleAgentPlugin` demonstrates text processing agent
+- Location: `src/plugins/agents.py`
+
+**20. Tool Plugins**
+- Create custom tools with:
+  - OpenAI/Anthropic schema generation
+  - Permission levels (read, write, execute, network, admin)
+  - Parameter definitions with validation
+  - Approval requirements
+- Example: `ExampleToolPlugin` provides calculate, random_number, current_time tools
+- Location: `src/plugins/tools.py`
+
+**Test Results (v0.1.5):**
+
+Plugin Tests (tests/test_plugins.py):
+```
+======================================================================
+  EXTENSIBILITY PHASE TEST RESULTS
+======================================================================
+
+TestPluginBase (7/7 tests):
+  [PASS] test_plugin_type_enum
+  [PASS] test_plugin_state_enum
+  [PASS] test_plugin_metadata_creation
+  [PASS] test_plugin_metadata_to_dict
+  [PASS] test_plugin_metadata_from_dict
+  [PASS] test_plugin_context
+  [PASS] test_plugin_errors
+
+TestPluginRegistry (5/5 tests):
+  [PASS] test_registry_singleton
+  [PASS] test_register_plugin_class
+  [PASS] test_unregister_plugin_class
+  [PASS] test_load_plugin
+  [PASS] test_unload_plugin
+  [PASS] test_list_plugins
+
+TestPluginLoader (1/1 tests):
+  [PASS] test_loader_singleton
+
+TestHookSystem (9/9 tests):
+  [PASS] test_hook_type_enum
+  [PASS] test_hook_priority_enum
+  [PASS] test_hook_manager_singleton
+  [PASS] test_register_hook
+  [PASS] test_unregister_hook
+  [PASS] test_emit_hook
+  [PASS] test_hook_priority_order
+  [PASS] test_hook_cancellation
+  [PASS] test_once_hook
+
+TestAgentPlugin (4/4 tests):
+  [PASS] test_example_agent_metadata
+  [PASS] test_agent_config
+  [PASS] test_agent_execute
+  [PASS] test_agent_can_handle
+
+TestToolPlugin (7/7 tests):
+  [PASS] test_example_tool_metadata
+  [PASS] test_tool_definitions
+  [PASS] test_tool_openai_schema
+  [PASS] test_tool_anthropic_schema
+  [PASS] test_tool_execute
+  [PASS] test_tool_random_number
+  [PASS] test_tool_unknown
+
+TestToolDefinition (2/2 tests):
+  [PASS] test_tool_parameter_creation
+  [PASS] test_tool_definition_creation
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 36/36 Plugin tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -2253,10 +2369,10 @@ OVERALL: PASSED - 33/33 Infrastructure tests passed
 - [x] Distributed worker system
 - [x] Prometheus metrics
 - [x] Grafana dashboards
+- [x] Plugin system for custom agents
 
 #### 📋 Planned
 
-- [ ] Plugin system for custom agents
 - [ ] Web dashboard (standalone)
 - [ ] Multi-tenancy support
 - [ ] Rate limiting
