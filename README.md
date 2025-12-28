@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.3-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.4-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1852,12 +1852,24 @@ agent-village/
 │   │   ├── ollama.py           # Ollama provider
 │   │   └── openai.py           # OpenAI provider
 │   │
-│   └── tools/                   # Tool system
+│   ├── tools/                   # Tool system
+│   │   ├── __init__.py
+│   │   ├── file.py             # File operations
+│   │   ├── registry.py         # Tool registry
+│   │   ├── sandbox.py          # Sandboxed execution
+│   │   └── web.py              # Web operations
+│   │
+│   ├── workers/                 # Distributed workers
+│   │   ├── __init__.py
+│   │   ├── celery_app.py       # Celery configuration
+│   │   ├── distributed.py      # Distributed worker system
+│   │   └── tasks.py            # Celery tasks
+│   │
+│   └── metrics/                 # Prometheus metrics
 │       ├── __init__.py
-│       ├── file.py             # File operations
-│       ├── registry.py         # Tool registry
-│       ├── sandbox.py          # Sandboxed execution
-│       └── web.py              # Web operations
+│       ├── prometheus.py       # Metric definitions
+│       ├── middleware.py       # FastAPI middleware
+│       └── routes.py           # Metrics API endpoints
 │
 ├── tests/                       # Test suite
 │   ├── __init__.py
@@ -1884,6 +1896,20 @@ agent-village/
 │       ├── namespace.yaml
 │       ├── secrets.yaml
 │       └── service.yaml
+│
+├── prometheus/                  # Prometheus configuration
+│   └── prometheus.yml          # Scrape configs
+│
+├── grafana/                     # Grafana dashboards
+│   ├── dashboards/
+│   │   ├── agent-village-overview.json
+│   │   ├── workers-detailed.json
+│   │   └── goals-agents.json
+│   └── provisioning/
+│       ├── dashboards/
+│       │   └── dashboards.yaml
+│       └── datasources/
+│           └── prometheus.yaml
 │
 ├── .env.example                 # Environment template
 ├── .gitignore
@@ -2119,20 +2145,119 @@ OVERALL: PASSED - 37/37 E2E tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.4) - Infrastructure Phase
+
+**13. Distributed Worker System**
+- New **Distributed Workers** (`src/workers/distributed.py`) for scalable task execution:
+  - **WorkerRegistry** - Redis-based worker registration and discovery
+  - **LoadBalancer** - Multiple strategies: round-robin, least-loaded, weighted-random, capability-match
+  - **DistributedWorker** - Worker node with heartbeat, health monitoring, graceful shutdown
+  - **Worker Capabilities**: goal_execution, task_execution, agent_spawning, llm_inference, file_operations, web_operations, memory_operations
+  - **Worker States**: starting, idle, busy, draining, stopping, offline
+- Location: `src/workers/distributed.py`
+
+**14. Prometheus Metrics**
+- Comprehensive **Prometheus Metrics** (`src/metrics/`) for full observability:
+  - **Request Metrics**: latency histogram, request count, in-flight requests
+  - **Agent Metrics**: spawn count, active agents, execution duration, errors
+  - **Goal Metrics**: created/completed/failed counts, active goals, duration histogram
+  - **Worker Metrics**: active workers, tasks total, task duration, capacity, utilization
+  - **Memory Metrics**: operations, cache hits/misses, store size
+  - **WebSocket Metrics**: connections, messages sent/received
+  - **System Metrics**: CPU usage, memory usage, disk usage
+- **PrometheusMiddleware** - Auto-collects HTTP request metrics
+- Metrics endpoint: `GET /metrics` (Prometheus format)
+- JSON endpoints: `/metrics/summary`, `/metrics/health`, `/metrics/workers`, `/metrics/goals`, `/metrics/agents`
+- Location: `src/metrics/prometheus.py`, `src/metrics/middleware.py`, `src/metrics/routes.py`
+
+**15. Grafana Dashboards**
+- Pre-built **Grafana Dashboards** for monitoring:
+  - **Agent Village - Overview**: System status, CPU/memory gauges, active workers/goals/agents, request rate/latency
+  - **Agent Village - Workers**: Worker status, capacity, utilization over time, task rate, latency percentiles, error analysis
+  - **Agent Village - Goals & Agents**: Goal activity, duration by priority, agent types, spawn rates, error breakdown
+- **Provisioning configs** for auto-loading dashboards
+- **Prometheus datasource** pre-configured
+- Location: `grafana/dashboards/`, `grafana/provisioning/`
+
+**16. Docker Monitoring Stack**
+- Updated **docker-compose.yml** with monitoring profile:
+  - Prometheus service (port 9090)
+  - Grafana service (port 3000, default admin/admin)
+  - Volume persistence for metrics data
+- Start monitoring: `docker-compose --profile with-monitoring up -d`
+- Location: `docker/docker-compose.yml`, `prometheus/prometheus.yml`
+
+**Test Results (v0.1.4):**
+
+Infrastructure Tests (tests/test_infrastructure.py):
+```
+======================================================================
+  INFRASTRUCTURE PHASE TEST RESULTS
+======================================================================
+
+TestDistributedWorkerSystem (8/8 tests):
+  [PASS] test_worker_status_enum
+  [PASS] test_worker_capability_enum
+  [PASS] test_worker_info_to_dict
+  [PASS] test_worker_info_from_dict
+  [PASS] test_load_balancer_strategies
+  [PASS] test_worker_registry_mock
+  [PASS] test_distributed_worker_initialization
+  [PASS] test_distributed_worker_info_generation
+
+TestPrometheusMetrics (13/13 tests):
+  [PASS] test_metrics_registry_creation
+  [PASS] test_request_latency_metric_exists
+  [PASS] test_request_count_metric_exists
+  [PASS] test_agent_metrics_exist
+  [PASS] test_goal_metrics_exist
+  [PASS] test_worker_metrics_exist
+  [PASS] test_memory_metrics_exist
+  [PASS] test_websocket_metrics_exist
+  [PASS] test_system_metrics_exist
+  [PASS] test_get_metrics_singleton
+  [PASS] test_setup_metrics
+  [PASS] test_metrics_export
+  [PASS] test_metrics_content_type
+
+TestPrometheusMiddleware (2/2 tests):
+  [PASS] test_middleware_excluded_paths
+  [PASS] test_system_metrics_collector_creation
+
+TestGrafanaDashboards (5/5 tests):
+  [PASS] test_overview_dashboard_exists
+  [PASS] test_workers_dashboard_exists
+  [PASS] test_goals_agents_dashboard_exists
+  [PASS] test_prometheus_datasource_config
+  [PASS] test_dashboards_provisioning_config
+
+TestPrometheusConfig (2/2 tests):
+  [PASS] test_prometheus_config_exists
+  [PASS] test_prometheus_scrape_configs
+
+TestDockerIntegration (3/3 tests):
+  [PASS] test_docker_compose_has_prometheus
+  [PASS] test_docker_compose_has_grafana
+  [PASS] test_docker_volumes_for_monitoring
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 33/33 Infrastructure tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
 - [x] Agent log streaming
 - [x] Real-time agent monitoring UI
+- [x] Distributed worker system
+- [x] Prometheus metrics
+- [x] Grafana dashboards
 
 #### 📋 Planned
 
-- [ ] Distributed worker system
-- [ ] Task queue (Celery/RQ)
 - [ ] Plugin system for custom agents
-- [ ] Web dashboard
-- [ ] Prometheus metrics
-- [ ] Grafana dashboards
+- [ ] Web dashboard (standalone)
 - [ ] Multi-tenancy support
 - [ ] Rate limiting
 - [ ] Audit logging

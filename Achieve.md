@@ -79,6 +79,15 @@ Agent Village is an enterprise-grade multi-agent orchestration system that achie
 |  |   (Goals/Tasks)  |  |     (Cache)      |  |  (Task Queue)    |                  |
 |  +------------------+  +------------------+  +------------------+                  |
 +-----------------------------------------------------------------------------------+
+                                          |
+                                          v
++-----------------------------------------------------------------------------------+
+|                              OBSERVABILITY LAYER                                   |
+|  +------------------+  +------------------+  +------------------+                  |
+|  |   Prometheus     |  |     Grafana      |  |   Distributed    |                  |
+|  |    (Metrics)     |  |   (Dashboards)   |  |    Workers       |                  |
+|  +------------------+  +------------------+  +------------------+                  |
++-----------------------------------------------------------------------------------+
 ```
 
 ### Execution Flow (FSM - Finite State Machine)
@@ -1037,6 +1046,160 @@ Execution:
 | **Self-Improvement** | Prompt optimization | Fully Implemented |
 | | Workflow optimization | Fully Implemented |
 | | Pattern retirement | Fully Implemented |
+| **Infrastructure** | Distributed workers | Fully Implemented |
+| | Prometheus metrics | Fully Implemented |
+| | Grafana dashboards | Fully Implemented |
+| | Load balancing | Fully Implemented |
+| | Worker health monitoring | Fully Implemented |
+
+---
+
+## Observability & Monitoring
+
+### Prometheus Metrics Architecture
+
+```
++-------------------------------------------------------------------------+
+|                          PROMETHEUS METRICS                              |
++-------------------------------------------------------------------------+
+|                                                                          |
+|  REQUEST METRICS              AGENT METRICS                              |
+|  +------------------+         +------------------+                       |
+|  | http_request_    |         | agent_spawn_     |                       |
+|  |   duration       |         |   total          |                       |
+|  | http_requests_   |         | agent_active     |                       |
+|  |   total          |         | agent_execution_ |                       |
+|  | http_requests_   |         |   duration       |                       |
+|  |   in_progress    |         | agent_errors_    |                       |
+|  +------------------+         |   total          |                       |
+|                               +------------------+                       |
+|                                                                          |
+|  GOAL METRICS                 WORKER METRICS                             |
+|  +------------------+         +------------------+                       |
+|  | goal_created_    |         | worker_active    |                       |
+|  |   total          |         | worker_tasks_    |                       |
+|  | goal_completed_  |         |   total          |                       |
+|  |   total          |         | worker_task_     |                       |
+|  | goal_failed_     |         |   duration       |                       |
+|  |   total          |         | worker_capacity  |                       |
+|  | goal_active      |         | worker_          |                       |
+|  | goal_duration    |         |   utilization    |                       |
+|  +------------------+         +------------------+                       |
+|                                                                          |
+|  MEMORY METRICS               SYSTEM METRICS                             |
+|  +------------------+         +------------------+                       |
+|  | memory_          |         | system_cpu_      |                       |
+|  |   operations     |         |   usage          |                       |
+|  | memory_cache_    |         | system_memory_   |                       |
+|  |   hits/misses    |         |   usage          |                       |
+|  | memory_store_    |         | system_disk_     |                       |
+|  |   size           |         |   usage          |                       |
+|  +------------------+         +------------------+                       |
+|                                                                          |
++-------------------------------------------------------------------------+
+```
+
+### Grafana Dashboards
+
+```
++-------------------------------------------------------------------------+
+|                          GRAFANA DASHBOARDS                              |
++-------------------------------------------------------------------------+
+|                                                                          |
+|  OVERVIEW DASHBOARD                                                      |
+|  +----------------------------------------------------------------+     |
+|  |  [CPU Gauge] [Memory Gauge] [Workers] [Goals] [Agents] [WS]   |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  | Request Rate by Endpoint  | | Request Latency (p95/p99)   | |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  | Goals Completed/Failed    | | Active Agents by Type       | |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  | Worker Utilization        | | Worker Task Rate            | |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  +----------------------------------------------------------------+     |
+|                                                                          |
+|  WORKERS DASHBOARD                                                       |
+|  +----------------------------------------------------------------+     |
+|  |  [Idle] [Busy] [Draining] [Offline] | [Capacity] [Throughput] |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  | Worker Utilization/Time   | | Tasks Processed per Worker  | |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  | Task Latency Percentiles  | | Task Duration Distribution  | |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  | Errors by Type            | | Task Success Rate           | |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  +----------------------------------------------------------------+     |
+|                                                                          |
+|  GOALS & AGENTS DASHBOARD                                                |
+|  +----------------------------------------------------------------+     |
+|  |  [Active] [Completed] [Failed] [Success%] [Avg Duration]      |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  | Goal Activity Over Time   | | Goal Duration by Priority   | |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  | Active Agents Over Time   | | Agent Execution Duration    | |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  |  | Errors by Agent Type      | | Errors by Error Type        | |     |
+|  |  +---------------------------+ +-----------------------------+ |     |
+|  +----------------------------------------------------------------+     |
+|                                                                          |
++-------------------------------------------------------------------------+
+```
+
+### Distributed Worker System
+
+```
++-------------------------------------------------------------------------+
+|                       DISTRIBUTED WORKER SYSTEM                          |
++-------------------------------------------------------------------------+
+|                                                                          |
+|   WORKER REGISTRY (Redis-based)                                         |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  +------------------+    +------------------+                   |    |
+|   |  |  Worker Node 1   |    |  Worker Node 2   |                   |    |
+|   |  |  ID: worker-abc  |    |  ID: worker-def  |                   |    |
+|   |  |  Status: IDLE    |    |  Status: BUSY    |                   |    |
+|   |  |  Tasks: 0/4      |    |  Tasks: 3/4      |                   |    |
+|   |  |  Heartbeat: OK   |    |  Heartbeat: OK   |                   |    |
+|   |  +------------------+    +------------------+                   |    |
+|   |                                                                 |    |
+|   |  +------------------+    +------------------+                   |    |
+|   |  |  Worker Node 3   |    |  Worker Node N   |                   |    |
+|   |  |  ID: worker-ghi  |    |  ID: worker-...  |                   |    |
+|   |  |  Status: DRAINING|    |  Status: IDLE    |                   |    |
+|   |  |  Tasks: 1/4      |    |  Tasks: 0/8      |                   |    |
+|   |  |  Heartbeat: OK   |    |  Heartbeat: OK   |                   |    |
+|   |  +------------------+    +------------------+                   |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
+|   LOAD BALANCER                                                          |
+|   +----------------------------------------------------------------+    |
+|   |                                                                 |    |
+|   |  Strategies:                                                    |    |
+|   |  - ROUND_ROBIN: Even distribution across workers               |    |
+|   |  - LEAST_LOADED: Route to worker with lowest utilization       |    |
+|   |  - WEIGHTED_RANDOM: Random based on available capacity         |    |
+|   |  - CAPABILITY_MATCH: Route based on required capabilities      |    |
+|   |                                                                 |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
+|   WORKER CAPABILITIES                                                    |
+|   +----------------------------------------------------------------+    |
+|   |  - goal_execution     - LLM inference                          |    |
+|   |  - task_execution     - file operations                        |    |
+|   |  - agent_spawning     - web operations                         |    |
+|   |                       - memory operations                       |    |
+|   +----------------------------------------------------------------+    |
+|                                                                          |
++-------------------------------------------------------------------------+
+```
 
 ---
 
