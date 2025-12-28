@@ -21,6 +21,9 @@
 </p>
 
 ---
+<img width="1536" height="1024" alt="20251228_1047_Agent Village Platform_simple_compose_01kdj93q6qet48anpj3wgz4503" src="https://github.com/user-attachments/assets/d1e3e415-8d18-4c32-8c18-db0026307ea0" />
+
+---
 
 ## 📑 Table of Contents
 
