@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.7-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.8-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1885,14 +1885,21 @@ agent-village/
 │   │   ├── app.py              # Dashboard FastAPI app
 │   │   └── routes.py           # Dashboard API routes
 │   │
-│   └── tenancy/                 # Multi-tenancy support
+│   ├── tenancy/                 # Multi-tenancy support
+│   │   ├── __init__.py
+│   │   ├── models.py           # Tenant models and quotas
+│   │   ├── context.py          # Tenant context management
+│   │   ├── middleware.py       # Tenant resolution middleware
+│   │   ├── repository.py       # Tenant data access
+│   │   ├── service.py          # Tenant business logic
+│   │   └── api.py              # Tenant REST API
+│   │
+│   └── ratelimit/               # Rate limiting system
 │       ├── __init__.py
-│       ├── models.py           # Tenant models and quotas
-│       ├── context.py          # Tenant context management
-│       ├── middleware.py       # Tenant resolution middleware
-│       ├── repository.py       # Tenant data access
-│       ├── service.py          # Tenant business logic
-│       └── api.py              # Tenant REST API
+│       ├── models.py           # Rate limit rules and config
+│       ├── storage.py          # In-memory and Redis backends
+│       ├── limiters.py         # Limiter algorithm implementations
+│       └── middleware.py       # FastAPI middleware and decorators
 │
 ├── tests/                       # Test suite
 │   ├── __init__.py
@@ -1908,6 +1915,7 @@ agent-village/
 │   ├── test_registry.py
 │   ├── test_safety.py
 │   ├── test_tenancy.py          # Multi-tenancy tests
+│   ├── test_ratelimit.py        # Rate limiting tests
 │   ├── test_tools.py
 │   └── test_websocket.py
 │
@@ -2574,6 +2582,219 @@ TestTenantAPI (10/10 tests):
 
 ----------------------------------------------------------------------
 OVERALL: PASSED - 61/61 Multi-tenancy tests passed
+======================================================================
+```
+
+#### 🆕 New Features (v0.1.8) - Rate Limiting
+
+**23. Rate Limiting System**
+
+Full **Rate Limiting System** (`src/ratelimit/`) for API protection:
+- Multiple rate limiting algorithms
+- Flexible scoping options
+- Tenant-aware rate limiting
+- FastAPI middleware integration
+- Decorator-based endpoint limits
+
+**Rate Limiting Strategies:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Rate Limiting Algorithms                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │  Fixed Window   │  │ Sliding Window  │  │  Token Bucket   │ │
+│  ├─────────────────┤  ├─────────────────┤  ├─────────────────┤ │
+│  │ Simple counting │  │ Weighted count  │  │ Burst capacity  │ │
+│  │ Per time window │  │ Smooth limiting │  │ Refill rate     │ │
+│  │ Fast, low RAM   │  │ No edge bursts  │  │ Best for APIs   │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
+│                                                                  │
+│  Usage: RateLimitStrategy.FIXED_WINDOW                          │
+│         RateLimitStrategy.SLIDING_WINDOW                        │
+│         RateLimitStrategy.TOKEN_BUCKET                          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Rate Limit Scopes:**
+- Location: `src/ratelimit/models.py`
+```python
+class RateLimitScope(str, Enum):
+    GLOBAL = "global"       # Across all requests
+    IP = "ip"               # Per IP address
+    USER = "user"           # Per authenticated user
+    TENANT = "tenant"       # Per tenant
+    API_KEY = "api_key"     # Per API key
+    ENDPOINT = "endpoint"   # Per IP + endpoint combination
+    CUSTOM = "custom"       # Custom identifier
+```
+
+**Rate Limit Rules:**
+- Location: `src/ratelimit/models.py`
+```python
+@dataclass
+class RateLimitRule:
+    name: str
+    requests: int           # Max requests allowed
+    window_seconds: int     # Time window in seconds
+    strategy: RateLimitStrategy = RateLimitStrategy.SLIDING_WINDOW
+    scope: RateLimitScope = RateLimitScope.IP
+    burst: Optional[int] = None         # Token bucket burst capacity
+    refill_rate: Optional[float] = None # Tokens per second
+    paths: Optional[list[str]] = None   # Apply to specific paths
+    methods: Optional[list[str]] = None # Apply to specific HTTP methods
+    warn_threshold: float = 0.8         # Warning at 80% usage
+```
+
+**Storage Backends:**
+- Location: `src/ratelimit/storage.py`
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Storage Backends                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────────────────┐  ┌────────────────────────────┐│
+│  │     InMemoryStorage         │  │       RedisStorage         ││
+│  ├─────────────────────────────┤  ├────────────────────────────┤│
+│  │ • Fast, no dependencies     │  │ • Distributed systems      ││
+│  │ • Auto-cleanup expired      │  │ • Lua scripts for atomic   ││
+│  │ • Async lock protection     │  │ • Auto TTL expiration      ││
+│  │ • Good for single instance  │  │ • Shared across replicas   ││
+│  └─────────────────────────────┘  └────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Middleware Integration:**
+- Location: `src/ratelimit/middleware.py`
+```python
+from src.ratelimit import RateLimitMiddleware, RateLimitConfig
+
+# Global middleware
+app.add_middleware(
+    RateLimitMiddleware,
+    config=RateLimitConfig(
+        default_requests=100,
+        default_window_seconds=60,
+        exempt_paths=["/health", "/metrics"],
+    )
+)
+
+# Decorator for specific endpoints
+@app.get("/api/resource")
+@rate_limit(requests=10, window_seconds=60)
+async def get_resource(request: Request):
+    return {"data": "..."}
+```
+
+**Tenant-Aware Rate Limiting:**
+- Location: `src/ratelimit/middleware.py`
+```python
+class TenantRateLimiter:
+    """Applies different limits based on tenant tier."""
+
+    # Tier limits (requests per minute):
+    # FREE:         10 requests
+    # STARTER:      30 requests
+    # PROFESSIONAL: 100 requests
+    # ENTERPRISE:   1000 requests
+
+    async def check(self, tenant_id, tier, operation) -> RateLimitResult
+    async def consume(self, tenant_id, tier, operation) -> RateLimitResult
+```
+
+**Predefined Rate Limit Templates:**
+```python
+from src.ratelimit import (
+    STRICT_RATE_LIMIT,      # 10 req/min
+    STANDARD_RATE_LIMIT,    # 100 req/min
+    RELAXED_RATE_LIMIT,     # 1000 req/min
+    API_RATE_LIMIT,         # Token bucket with burst
+    GOAL_SUBMISSION_LIMIT,  # 10 goals/min per tenant
+)
+```
+
+**Test Results (v0.1.8):**
+
+Rate Limiting Tests (tests/test_ratelimit.py):
+```
+======================================================================
+  RATE LIMITING TEST RESULTS
+======================================================================
+
+TestRateLimitModels (13/13 tests):
+  [PASS] test_rate_limit_strategy_enum
+  [PASS] test_rate_limit_scope_enum
+  [PASS] test_rate_limit_rule_creation
+  [PASS] test_rate_limit_rule_token_bucket_defaults
+  [PASS] test_rate_limit_rule_matches_request
+  [PASS] test_rate_limit_result_creation
+  [PASS] test_rate_limit_result_to_headers
+  [PASS] test_rate_limit_result_to_dict
+  [PASS] test_rate_limit_config_defaults
+  [PASS] test_rate_limit_config_add_rule
+  [PASS] test_rate_limit_config_get_matching_rules
+  [PASS] test_rate_limit_config_is_exempt
+  [PASS] test_predefined_rules
+
+TestRateLimitStorage (10/10 tests):
+  [PASS] test_increment_new_key
+  [PASS] test_increment_existing_key
+  [PASS] test_increment_custom_amount
+  [PASS] test_get_nonexistent
+  [PASS] test_get_after_increment
+  [PASS] test_set_and_get
+  [PASS] test_delete
+  [PASS] test_get_set_tokens
+  [PASS] test_cleanup_expired
+  [PASS] test_entry_is_expired
+
+TestFixedWindowLimiter (4/4 tests):
+  [PASS] test_check_allowed
+  [PASS] test_consume_decrements
+  [PASS] test_consume_blocks_when_exceeded
+  [PASS] test_reset
+
+TestSlidingWindowLimiter (3/3 tests):
+  [PASS] test_check_allowed
+  [PASS] test_consume_uses_sliding_window
+  [PASS] test_consume_blocks_when_exceeded
+
+TestTokenBucketLimiter (4/4 tests):
+  [PASS] test_check_allowed
+  [PASS] test_consume_uses_tokens
+  [PASS] test_consume_multiple_tokens
+  [PASS] test_consume_blocks_insufficient_tokens
+
+TestCreateLimiter (4/4 tests):
+  [PASS] test_create_fixed_window
+  [PASS] test_create_sliding_window
+  [PASS] test_create_token_bucket
+  [PASS] test_create_with_storage
+
+TestGetRequestKey (7/7 tests):
+  [PASS] test_global_scope
+  [PASS] test_ip_scope
+  [PASS] test_ip_scope_with_forwarded
+  [PASS] test_user_scope
+  [PASS] test_tenant_scope
+  [PASS] test_api_key_scope
+  [PASS] test_endpoint_scope
+
+TestRateLimitMiddleware (4/4 tests):
+  [PASS] test_middleware_allows_requests
+  [PASS] test_middleware_exempt_paths
+  [PASS] test_middleware_blocks_when_exceeded
+  [PASS] test_middleware_disabled
+
+TestTenantRateLimiter (5/5 tests):
+  [PASS] test_free_tier_limits
+  [PASS] test_enterprise_tier_limits
+  [PASS] test_different_operations
+  [PASS] test_consume
+  [PASS] test_consume_blocks_when_exceeded
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 54/54 Rate Limiting tests passed
 ======================================================================
 ```
 

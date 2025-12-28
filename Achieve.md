@@ -1066,6 +1066,12 @@ Execution:
 | | Tenant quotas & limits | Fully Implemented |
 | | Tenant API endpoints | Fully Implemented |
 | | Tenant resolution strategies | Fully Implemented |
+| **Rate Limiting** | Fixed window limiter | Fully Implemented |
+| | Sliding window limiter | Fully Implemented |
+| | Token bucket limiter | Fully Implemented |
+| | FastAPI middleware | Fully Implemented |
+| | Tenant-aware rate limits | Fully Implemented |
+| | Redis storage backend | Fully Implemented |
 
 ---
 
@@ -1696,6 +1702,172 @@ ok, reason = await service.check_quota(
 )
 if not ok:
     raise HTTPException(429, reason)
+```
+
+---
+
+## Rate Limiting System
+
+### Rate Limiting Architecture
+
+```
++------------------------------------------------------------------------------+
+|                           Rate Limiting System                                |
++------------------------------------------------------------------------------+
+|                                                                               |
+|   ┌─────────────────────────────────────────────────────────────────────┐   |
+|   |                        REQUEST FLOW                                  |   |
+|   |                                                                      |   |
+|   |   Request --> [Middleware] --> [Rule Matching] --> [Limiter] --> OK |   |
+|   |                    |                |                   |            |   |
+|   |                    |                |                   v            |   |
+|   |              Check Exempt     Get Key            429 if exceeded    |   |
+|   |              (paths, IPs)    (IP/User/Tenant)                       |   |
+|   └─────────────────────────────────────────────────────────────────────┘   |
+|                                                                               |
+|   ┌─────────────────────────────────────────────────────────────────────┐   |
+|   |                     RATE LIMITING ALGORITHMS                         |   |
+|   |                                                                      |   |
+|   |   ┌─────────────┐  ┌──────────────┐  ┌─────────────┐               |   |
+|   |   | Fixed       |  |   Sliding    |  |   Token     |               |   |
+|   |   | Window      |  |   Window     |  |   Bucket    |               |   |
+|   |   |-------------|  |--------------|  |-------------|               |   |
+|   |   | Simple      |  | Weighted     |  | Burst       |               |   |
+|   |   | counting    |  | count across |  | capacity +  |               |   |
+|   |   | per period  |  | windows      |  | refill rate |               |   |
+|   |   └─────────────┘  └──────────────┘  └─────────────┘               |   |
+|   └─────────────────────────────────────────────────────────────────────┘   |
+|                                                                               |
+|   ┌─────────────────────────────────────────────────────────────────────┐   |
+|   |                         SCOPES                                       |   |
+|   |                                                                      |   |
+|   |   GLOBAL ───> All requests combined                                 |   |
+|   |   IP ───────> Per client IP address                                 |   |
+|   |   USER ─────> Per authenticated user                                |   |
+|   |   TENANT ───> Per tenant organization                               |   |
+|   |   API_KEY ──> Per API key                                           |   |
+|   |   ENDPOINT ─> Per IP + endpoint combination                         |   |
+|   |   CUSTOM ───> Custom key function                                   |   |
+|   └─────────────────────────────────────────────────────────────────────┘   |
+|                                                                               |
++------------------------------------------------------------------------------+
+```
+
+### Storage Architecture
+
+```
++------------------------------------------------------------------------------+
+|                           Storage Backends                                    |
++------------------------------------------------------------------------------+
+|                                                                               |
+|   ┌─────────────────────────────────────────────────────────────────────┐   |
+|   |                     InMemoryStorage                                  |   |
+|   |---------------------------------------------------------------------|   |
+|   |   • Async lock-protected dictionary                                  |   |
+|   |   • Auto-cleanup of expired entries                                  |   |
+|   |   • Per-key window tracking                                          |   |
+|   |   • Token bucket support                                             |   |
+|   |   • Best for: Single-instance deployments                            |   |
+|   └─────────────────────────────────────────────────────────────────────┘   |
+|                                                                               |
+|   ┌─────────────────────────────────────────────────────────────────────┐   |
+|   |                      RedisStorage                                    |   |
+|   |---------------------------------------------------------------------|   |
+|   |   • Lua scripts for atomic operations                                |   |
+|   |   • Automatic TTL-based expiration                                   |   |
+|   |   • Shared across multiple instances                                 |   |
+|   |   • Pipeline support for efficiency                                  |   |
+|   |   • Best for: Distributed deployments                                |   |
+|   └─────────────────────────────────────────────────────────────────────┘   |
+|                                                                               |
++------------------------------------------------------------------------------+
+```
+
+### Tenant-Aware Rate Limits
+
+```
++------------------------------------------------------------------------------+
+|                       Tier-Based Rate Limits                                  |
++------------------------------------------------------------------------------+
+|                                                                               |
+|   TIER           │ REQUESTS/MIN │ GOALS/MIN │ AGENTS │ API CALLS            |
+|   ───────────────┼──────────────┼───────────┼────────┼──────────            |
+|   FREE           │      10      │     5     │    3   │    10                |
+|   STARTER        │      30      │    15     │   10   │    30                |
+|   PROFESSIONAL   │     100      │    50     │   30   │   100                |
+|   ENTERPRISE     │    1000      │   500     │  200   │  1000                |
+|                                                                               |
++------------------------------------------------------------------------------+
+```
+
+### HTTP Response Headers
+
+```
++------------------------------------------------------------------------------+
+|                       Rate Limit Headers                                      |
++------------------------------------------------------------------------------+
+|                                                                               |
+|   Header                  │ Description                                      |
+|   ────────────────────────┼──────────────────────────────────────────────   |
+|   X-RateLimit-Limit       │ Maximum requests allowed                        |
+|   X-RateLimit-Remaining   │ Remaining requests in window                    |
+|   X-RateLimit-Reset       │ Unix timestamp when limit resets                |
+|   X-RateLimit-Rule        │ Name of the applied rule                        |
+|   Retry-After             │ Seconds until retry allowed (on 429)            |
+|                                                                               |
++------------------------------------------------------------------------------+
+```
+
+### Using Rate Limiting
+
+```python
+from src.ratelimit import (
+    RateLimitMiddleware,
+    RateLimitConfig,
+    RateLimitRule,
+    RateLimitStrategy,
+    RateLimitScope,
+    rate_limit,
+    TenantRateLimiter,
+)
+
+# 1. Add global middleware
+app.add_middleware(
+    RateLimitMiddleware,
+    config=RateLimitConfig(
+        default_requests=100,
+        default_window_seconds=60,
+        exempt_paths=["/health", "/metrics"],
+        exempt_ips=["127.0.0.1"],
+    )
+)
+
+# 2. Add custom rules
+config = RateLimitConfig()
+config.add_rule(RateLimitRule(
+    name="api_strict",
+    requests=10,
+    window_seconds=60,
+    strategy=RateLimitStrategy.SLIDING_WINDOW,
+    scope=RateLimitScope.IP,
+    paths=["/api/sensitive/*"],
+))
+
+# 3. Use decorator for specific endpoints
+@app.post("/api/goals")
+@rate_limit(requests=10, window_seconds=60, scope=RateLimitScope.TENANT)
+async def create_goal(request: Request):
+    return {"goal": "created"}
+
+# 4. Use tenant-aware rate limiter
+limiter = TenantRateLimiter()
+result = await limiter.check(
+    tenant_id="tenant-123",
+    tier="professional",
+    operation="goal",
+)
+if not result.allowed:
+    raise HTTPException(429, result.message)
 ```
 
 ---
