@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.11-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.12-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1913,10 +1913,16 @@ agent-village/
 │   │   ├── providers.py        # OAuth2, OIDC, SAML providers
 │   │   └── middleware.py       # FastAPI middleware and routes
 │   │
-│   └── rbac/                    # Role-Based Access Control
+│   ├── rbac/                    # Role-Based Access Control
+│   │   ├── __init__.py
+│   │   ├── models.py           # Permissions, roles, assignments
+│   │   ├── service.py          # RBAC service layer
+│   │   └── middleware.py       # FastAPI middleware and decorators
+│   │
+│   └── mfa/                     # Multi-Factor Authentication
 │       ├── __init__.py
-│       ├── models.py           # Permissions, roles, assignments
-│       ├── service.py          # RBAC service layer
+│       ├── models.py           # TOTP, SMS, backup codes
+│       ├── service.py          # MFA service layer
 │       └── middleware.py       # FastAPI middleware and decorators
 │
 ├── tests/                       # Test suite
@@ -1937,6 +1943,7 @@ agent-village/
 │   ├── test_audit.py            # Audit logging tests
 │   ├── test_sso.py              # SSO integration tests
 │   ├── test_rbac.py             # RBAC tests
+│   ├── test_mfa.py              # MFA tests
 │   ├── test_tools.py
 │   └── test_websocket.py
 │
@@ -3456,6 +3463,202 @@ OVERALL: PASSED - 79/79 RBAC tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.12) - Multi-Factor Authentication
+
+**27. MFA System**
+
+Full **MFA System** (`src/mfa/`) for multi-factor authentication:
+- TOTP (Time-based One-Time Password) support
+- SMS verification
+- Email verification
+- Backup codes (one-time recovery codes)
+- Trusted device management
+- Session management with MFA verification
+- Rate limiting and lockout protection
+- FastAPI middleware and decorators
+
+**Supported MFA Methods:**
+- Location: `src/mfa/models.py`
+```python
+class MFAMethod(str, Enum):
+    TOTP = "totp"        # Google Authenticator, Authy
+    SMS = "sms"          # SMS verification
+    EMAIL = "email"      # Email verification
+    BACKUP_CODE = "backup_code"  # One-time backup codes
+```
+
+**MFA Configuration:**
+- Location: `src/mfa/middleware.py`
+```python
+from src.mfa import (
+    MFAService,
+    MFAMiddleware,
+    MFAMethod,
+    TOTPGenerator,
+    require_mfa,
+    create_mfa_routes,
+)
+
+# 1. Initialize MFA service
+mfa_service = MFAService()
+
+# 2. Add MFA middleware
+app.add_middleware(
+    MFAMiddleware,
+    mfa_service=mfa_service,
+    config=MFAMiddlewareConfig(
+        enforce_mfa=True,
+        exclude_paths=["/health", "/docs", "/mfa/"],
+    ),
+)
+
+# 3. Include MFA routes
+app.include_router(create_mfa_routes(mfa_service))
+
+# 4. Protect endpoints with MFA
+@app.get("/sensitive-data")
+@require_mfa()
+async def get_sensitive_data(request: Request):
+    return {"data": "secret"}
+```
+
+**TOTP Enrollment Flow:**
+```python
+# 1. Start enrollment - returns QR code URI
+result = await mfa_service.enroll_totp(user_id)
+qr_uri = result.provisioning_uri
+
+# 2. User scans QR code with authenticator app
+# 3. Verify enrollment with code from app
+result = await mfa_service.verify_totp_enrollment(user_id, code)
+backup_codes = result.backup_codes  # Save these!
+```
+
+**MFA API Endpoints:**
+```
++------------------------------------------------------------------------------+
+|                           MFA API Endpoints                                   |
++------------------------------------------------------------------------------+
+|  GET    /mfa/status              | Get MFA status for current user           |
+|  POST   /mfa/totp/enroll         | Start TOTP enrollment                     |
+|  POST   /mfa/totp/verify         | Verify TOTP enrollment                    |
+|  POST   /mfa/sms/enroll          | Start SMS enrollment                      |
+|  POST   /mfa/sms/verify          | Verify SMS enrollment                     |
+|  POST   /mfa/email/enroll        | Start email enrollment                    |
+|  POST   /mfa/email/verify        | Verify email enrollment                   |
+|  POST   /mfa/backup-codes/regen  | Regenerate backup codes                   |
+|  POST   /mfa/challenge           | Create verification challenge             |
+|  POST   /mfa/verify              | Verify MFA code                           |
+|  GET    /mfa/devices             | List trusted devices                      |
+|  POST   /mfa/devices/trust       | Trust current device                      |
+|  DELETE /mfa/devices/{id}        | Revoke trusted device                     |
+|  DELETE /mfa/method/{method}     | Disable specific MFA method               |
+|  DELETE /mfa/                    | Disable all MFA                           |
++------------------------------------------------------------------------------+
+```
+
+**Test Results (v0.1.12):**
+
+MFA Tests (tests/test_mfa.py):
+```
+======================================================================
+  TOTP Config Tests (3 tests)
+  [PASS] test_generate_totp_config
+  [PASS] test_provisioning_uri
+  [PASS] test_unique_secrets
+
+  Backup Codes Tests (5 tests)
+  [PASS] test_generate_backup_code
+  [PASS] test_verify_backup_code
+  [PASS] test_verify_backup_code_case_insensitive
+  [PASS] test_verify_backup_code_without_dash
+  [PASS] test_backup_codes_config_generate
+  [PASS] test_backup_codes_verify_and_consume
+
+  TOTP Generator Tests (4 tests)
+  [PASS] test_generate_totp
+  [PASS] test_verify_totp_current
+  [PASS] test_verify_totp_window
+  [PASS] test_verify_totp_different_digits
+  [PASS] test_totp_different_algorithms
+
+  MFA Store Tests (5 tests)
+  [PASS] test_enrollment_crud
+  [PASS] test_challenge_expiration
+  [PASS] test_session_expiration
+  [PASS] test_trusted_devices
+  [PASS] test_rate_limiting
+
+  MFA Service Tests (9 tests)
+  [PASS] test_totp_enrollment
+  [PASS] test_totp_verification
+  [PASS] test_sms_enrollment
+  [PASS] test_sms_verification
+  [PASS] test_email_enrollment
+  [PASS] test_backup_codes_regeneration
+  [PASS] test_verify_mfa_totp
+  [PASS] test_verify_mfa_backup_code
+  [PASS] test_rate_limiting
+
+  Trusted Devices Tests (4 tests)
+  [PASS] test_trust_device
+  [PASS] test_get_trusted_devices
+  [PASS] test_revoke_trusted_device
+  [PASS] test_revoke_all_trusted_devices
+
+  Session Tests (3 tests)
+  [PASS] test_create_session
+  [PASS] test_session_with_trusted_device
+  [PASS] test_verify_session
+
+  Management Tests (5 tests)
+  [PASS] test_get_status_not_enabled
+  [PASS] test_get_status_enabled
+  [PASS] test_disable_method
+  [PASS] test_disable_all
+  [PASS] test_set_require_mfa
+
+  Challenge Tests (6 tests)
+  [PASS] test_sms_challenge
+  [PASS] test_email_challenge
+  [PASS] test_totp_challenge
+  [PASS] test_challenge_expiration
+  [PASS] test_challenge_lock
+  [PASS] test_verify_challenge_code
+
+  Enrollment Tests (4 tests)
+  [PASS] test_is_method_enabled
+  [PASS] test_get_available_methods
+  [PASS] test_record_attempt
+  [PASS] test_get_recent_failures
+
+  API Routes Tests (5 tests)
+  [PASS] test_get_status
+  [PASS] test_totp_enroll
+  [PASS] test_sms_enroll
+  [PASS] test_email_enroll
+  [PASS] test_get_devices
+
+  Middleware Tests (4 tests)
+  [PASS] test_excluded_path
+  [PASS] test_mfa_routes_excluded
+  [PASS] test_protected_without_mfa
+  [PASS] test_protected_with_mfa_required
+
+  Config Tests (2 tests)
+  [PASS] test_default_config
+  [PASS] test_custom_config
+
+  Integration Tests (3 tests)
+  [PASS] test_full_totp_flow
+  [PASS] test_trusted_device_flow
+  [PASS] test_multiple_methods
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 64/64 MFA tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -3471,10 +3674,10 @@ OVERALL: PASSED - 79/79 RBAC tests passed
 - [x] Audit logging
 - [x] SSO integration
 - [x] Role-based access control (RBAC)
+- [x] Multi-factor authentication (MFA)
 
 #### 📋 Planned
 
-- [ ] Multi-factor authentication (MFA)
 - [ ] API key management
 
 ---

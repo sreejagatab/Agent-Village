@@ -1091,6 +1091,13 @@ Execution:
 | | Time-based role validity | Fully Implemented |
 | | Permission caching | Fully Implemented |
 | | FastAPI middleware & decorators | Fully Implemented |
+| **MFA System** | TOTP (Google Authenticator) | Fully Implemented |
+| | SMS verification | Fully Implemented |
+| | Email verification | Fully Implemented |
+| | Backup codes | Fully Implemented |
+| | Trusted device management | Fully Implemented |
+| | Session management | Fully Implemented |
+| | Rate limiting & lockout | Fully Implemented |
 
 ---
 
@@ -2506,6 +2513,174 @@ allowed = await rbac_service.check_permission(
 if allowed:
     # Proceed with operation
     pass
+```
+
+---
+
+## Multi-Factor Authentication (MFA)
+
+### MFA Architecture
+
+```
++------------------------------------------------------------------------------+
+|                           MFA System                                          |
++------------------------------------------------------------------------------+
+|                                                                              |
+|    +------------------------+     +------------------------+                 |
+|    |    TOTP Provider       |     |    SMS Provider        |                 |
+|    |  - Secret generation   |     |  - Code generation     |                 |
+|    |  - Code verification   |     |  - Delivery tracking   |                 |
+|    +------------------------+     +------------------------+                 |
+|                |                            |                                |
+|    +------------------------+     +------------------------+                 |
+|    |   Email Provider       |     |   Backup Codes         |                 |
+|    |  - Code generation     |     |  - One-time codes      |                 |
+|    |  - Delivery tracking   |     |  - Hash verification   |                 |
+|    +------------------------+     +------------------------+                 |
+|                |                            |                                |
+|                +-------------+--------------+                                |
+|                              |                                               |
+|                              v                                               |
+|    +--------------------------------------------------------+               |
+|    |                    MFA Service                          |               |
+|    |  - Enrollment management   - Verification challenges   |               |
+|    |  - Session handling        - Rate limiting             |               |
+|    +--------------------------------------------------------+               |
+|                              |                                               |
+|                              v                                               |
+|    +------------------------+     +------------------------+                 |
+|    |   MFA Middleware       |     |   Trusted Devices      |                 |
+|    |  - Enforcement         |     |  - Fingerprinting      |                 |
+|    |  - Route protection    |     |  - Skip MFA for known  |                 |
+|    +------------------------+     +------------------------+                 |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### Supported MFA Methods
+
+```
++------------------------------------------------------------------------------+
+|                        MFA Methods                                            |
++------------------------------------------------------------------------------+
+|                                                                              |
+|  TOTP (Time-based OTP)          SMS Verification                             |
+|  +----------------------+       +----------------------+                      |
+|  | Google Authenticator |       | 6-digit code         |                      |
+|  | Authy, 1Password     |       | 5-minute expiry      |                      |
+|  | Microsoft Auth       |       | Rate limited         |                      |
+|  | 30-second window     |       +----------------------+                      |
+|  +----------------------+                                                     |
+|                                                                              |
+|  Email Verification             Backup Codes                                  |
+|  +----------------------+       +----------------------+                      |
+|  | 6-digit code         |       | 10 codes generated   |                      |
+|  | 10-minute expiry     |       | XXXX-XXXX format     |                      |
+|  | Rate limited         |       | One-time use         |                      |
+|  +----------------------+       | Regeneratable        |                      |
+|                                 +----------------------+                      |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### MFA Verification Flow
+
+```
++------------------------------------------------------------------------------+
+|                       MFA Verification Flow                                   |
++------------------------------------------------------------------------------+
+|                                                                              |
+|   Login ──> Primary Auth ──> MFA Required? ──> Yes ──> Challenge ──> Verify  |
+|                                   |                                          |
+|                                   No                                         |
+|                                   |                                          |
+|                                   v                                          |
+|                            Access Granted                                    |
+|                                                                              |
+|   MFA Verification Steps:                                                    |
+|   1. Check if user has MFA enabled                                           |
+|   2. Check if device is trusted (skip if yes)                                |
+|   3. Create verification challenge                                           |
+|   4. User provides code (TOTP/SMS/Email/Backup)                              |
+|   5. Verify code against challenge                                           |
+|   6. Record attempt (rate limiting)                                          |
+|   7. On success: create MFA session                                          |
+|   8. Optional: trust device for future logins                                |
+|                                                                              |
++------------------------------------------------------------------------------+
+```
+
+### Using MFA
+
+```python
+from src.mfa import (
+    MFAService,
+    MFAMiddleware,
+    MFAMiddlewareConfig,
+    MFAMethod,
+    TOTPGenerator,
+    require_mfa,
+    create_mfa_routes,
+)
+
+# 1. Initialize MFA service
+mfa_service = MFAService()
+
+# 2. Add MFA middleware to FastAPI
+app.add_middleware(
+    MFAMiddleware,
+    mfa_service=mfa_service,
+    config=MFAMiddlewareConfig(
+        enforce_mfa=True,
+        exclude_paths=["/health", "/docs", "/mfa/"],
+    ),
+)
+
+# 3. Include MFA routes
+app.include_router(create_mfa_routes(mfa_service))
+
+# 4. TOTP Enrollment Flow
+# Start enrollment
+result = await mfa_service.enroll_totp(user_id)
+qr_uri = result.provisioning_uri  # For QR code
+
+# User scans QR code, enters code from authenticator
+result = await mfa_service.verify_totp_enrollment(user_id, code)
+backup_codes = result.backup_codes  # Save these!
+
+# 5. SMS Enrollment Flow
+result = await mfa_service.enroll_sms(user_id, "+1234567890")
+challenge_id = result.challenge_id
+# User receives SMS, enters code
+result = await mfa_service.verify_sms_enrollment(user_id, challenge_id, code)
+
+# 6. Verify MFA during login
+result = await mfa_service.verify(
+    user_id=user_id,
+    code=user_provided_code,
+    method=MFAMethod.TOTP,  # or SMS, EMAIL, BACKUP_CODE
+)
+
+if result.success:
+    # MFA verified, create session
+    session = await mfa_service.create_session(user_id)
+
+# 7. Trust device to skip MFA
+await mfa_service.trust_device(
+    user_id=user_id,
+    device_fingerprint=fingerprint,
+    device_name="My Laptop",
+)
+
+# 8. Protect endpoints with MFA decorator
+@app.get("/sensitive-data")
+@require_mfa()
+async def get_sensitive_data(request: Request):
+    return {"data": "secret"}
+
+# 9. Check MFA status
+status = await mfa_service.get_status(user_id)
+# Returns: enabled, methods, backup_codes_remaining, etc.
 ```
 
 ---
