@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.0-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.2-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1933,6 +1933,50 @@ The following improvements were made based on real-world use case testing:
 - Added retry logic with up to 3 attempts for agent assignment
 - Location: `src/core/agent_manager.py:find_best_agent()`
 
+#### 🆕 New Features (v0.1.2)
+
+**6. Advanced Web Scraping Tools**
+- Added **`scrape_webpage`** tool with advanced extraction capabilities:
+  - CSS selector extraction (`.class`, `#id`, `tag.class`)
+  - Automatic link, image, and table extraction
+  - Heading and meta description parsing
+  - Configurable extraction options
+- Added **`web_search`** tool for DuckDuckGo API integration
+- Total web tools: 6 (http_get, http_post, http_request, fetch_webpage, scrape_webpage, web_search)
+- Location: `src/tools/web.py:329-525`
+
+**7. Multi-Task Execution with Error Recovery**
+- New **TaskExecutor** class for robust task execution:
+  - Configurable concurrency limits (default: 5 parallel tasks)
+  - Wave-based execution respecting task dependencies
+  - Progress tracking with `ExecutionProgress` dataclass
+- **RetryConfig** with multiple strategies:
+  - `EXPONENTIAL_BACKOFF` (default) - Doubles delay each retry
+  - `LINEAR_BACKOFF` - Linear delay increase
+  - `IMMEDIATE` - Instant retry
+  - `NONE` - No retry
+- Smart error classification (retryable vs non-retryable)
+- Configurable max retries, delays, and jitter
+- Location: `src/core/task_executor.py`
+
+**8. Agent Coordination System**
+- New **AgentCoordinator** for multi-agent collaboration:
+  - **SharedContext** - Shared state and artifacts between agents
+  - **Handoff** - Task transfer between agents with context
+  - Real-time message broadcasting
+- Collaboration patterns:
+  - `SEQUENTIAL` - Agents work one after another, passing context
+  - `PARALLEL` - All agents work simultaneously
+  - `PIPELINE` - Output of one feeds input to next
+  - `HIERARCHICAL` - Manager agent delegates to workers
+- Location: `src/core/coordination.py`
+
+**9. Enhanced Tool Agent**
+- Expanded allowed tools to include all web tools:
+  - `fetch_webpage`, `scrape_webpage`, `web_search`, `http_request`
+- Total available tools: 21 across 4 categories (file, web, code, shell)
+- Location: `src/agents/tool_agent.py:87-91`
+
 **Use Case Test Results After Improvements:**
 
 | Use Case | Before | After | Improvement |
@@ -1947,20 +1991,23 @@ The following improvements were made based on real-world use case testing:
 - [x] Core orchestration (Governor, FSM, Safety Gate)
 - [x] All 8 agent types
 - [x] Message protocol and routing
-- [x] Memory subsystems (episodic, semantic, strategic)
+- [x] Memory subsystems (episodic, semantic, strategic, procedural)
 - [x] REST API and WebSocket endpoints
 - [x] Multi-provider LLM support
-- [x] Tool framework and registry
+- [x] Tool framework and registry (21 tools)
 - [x] Database models and repositories
 - [x] Configuration management
 - [x] Docker and Kubernetes deployment
 - [x] CLI interface
-- [x] Test suite
+- [x] Test suite (152 tests)
+- [x] Web scraping and search tools
+- [x] Multi-task parallel execution with dependencies
+- [x] Error recovery with retry strategies
+- [x] Agent coordination and collaboration patterns
 
 #### 🔄 In Progress
 
 - [ ] Memory search API endpoint
-- [ ] Procedural memory implementation
 - [ ] Agent log streaming
 - [ ] Real-time agent monitoring UI
 
