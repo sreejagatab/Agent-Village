@@ -1072,6 +1072,12 @@ Execution:
 | | FastAPI middleware | Fully Implemented |
 | | Tenant-aware rate limits | Fully Implemented |
 | | Redis storage backend | Fully Implemented |
+| **Audit Logging** | Audit event models | Fully Implemented |
+| | In-memory storage | Fully Implemented |
+| | File-based storage | Fully Implemented |
+| | FastAPI middleware | Fully Implemented |
+| | Decorator-based auditing | Fully Implemented |
+| | Sensitive data masking | Fully Implemented |
 
 ---
 
@@ -1868,6 +1874,175 @@ result = await limiter.check(
 )
 if not result.allowed:
     raise HTTPException(429, result.message)
+```
+
+---
+
+## Audit Logging System
+
+### Audit Event Architecture
+
+```
++------------------------------------------------------------------------------+
+|                          Audit Logging System                                 |
++------------------------------------------------------------------------------+
+|                                                                               |
+|   ┌─────────────────────────────────────────────────────────────────────┐   |
+|   |                        EVENT FLOW                                    |   |
+|   |                                                                      |   |
+|   |   Action --> [Middleware/Decorator] --> AuditLogger --> Storage     |   |
+|   |                       |                     |                        |   |
+|   |                       |                     v                        |   |
+|   |               Extract Context         Mask Sensitive                |   |
+|   |               (Actor, Resource)       Fields                        |   |
+|   └─────────────────────────────────────────────────────────────────────┘   |
+|                                                                               |
+|   ┌─────────────────────────────────────────────────────────────────────┐   |
+|   |                     EVENT CATEGORIES                                 |   |
+|   |                                                                      |   |
+|   |   AUTHENTICATION ──> Login, logout, MFA events                      |   |
+|   |   AUTHORIZATION ───> Access granted/denied                          |   |
+|   |   DATA_ACCESS ─────> Read operations                                |   |
+|   |   DATA_MUTATION ───> Create, update, delete                         |   |
+|   |   SECURITY ────────> Rate limits, suspicious activity               |   |
+|   |   AGENT ───────────> Agent spawn, complete, fail                    |   |
+|   |   GOAL ────────────> Goal lifecycle events                          |   |
+|   |   TENANT ──────────> Tenant management events                       |   |
+|   └─────────────────────────────────────────────────────────────────────┘   |
+|                                                                               |
+|   ┌─────────────────────────────────────────────────────────────────────┐   |
+|   |                      SEVERITY LEVELS                                 |   |
+|   |                                                                      |   |
+|   |   DEBUG ────> Detailed debug information                            |   |
+|   |   INFO ─────> Normal operations                                     |   |
+|   |   WARNING ──> Potential issues                                      |   |
+|   |   ERROR ────> Operation failures                                    |   |
+|   |   CRITICAL ─> Security incidents                                    |   |
+|   └─────────────────────────────────────────────────────────────────────┘   |
+|                                                                               |
++------------------------------------------------------------------------------+
+```
+
+### Audit Event Structure
+
+```
++------------------------------------------------------------------------------+
+|                          Audit Event Components                               |
++------------------------------------------------------------------------------+
+|                                                                               |
+|   AuditEvent                                                                  |
+|   ├── event_id: str              # Unique identifier                         |
+|   ├── timestamp: datetime        # When event occurred                       |
+|   ├── category: EventCategory    # Category of event                         |
+|   ├── event_type: EventType      # Specific event type                       |
+|   ├── severity: Severity         # DEBUG/INFO/WARNING/ERROR/CRITICAL         |
+|   ├── outcome: Outcome           # SUCCESS/FAILURE/PENDING                   |
+|   │                                                                           |
+|   ├── actor: AuditActor          # WHO performed the action                  |
+|   │   ├── actor_id               # User/system/agent ID                      |
+|   │   ├── actor_type             # user/service/system/agent                 |
+|   │   ├── ip_address             # Client IP                                 |
+|   │   └── tenant_id              # Tenant context                            |
+|   │                                                                           |
+|   ├── resource: AuditResource    # WHAT was affected                         |
+|   │   ├── resource_type          # goal/agent/tenant/user                    |
+|   │   └── resource_id            # Resource identifier                       |
+|   │                                                                           |
+|   ├── context: AuditContext      # WHERE/HOW it happened                     |
+|   │   ├── request_id             # Request correlation                       |
+|   │   ├── endpoint               # HTTP endpoint                             |
+|   │   ├── http_method            # GET/POST/PUT/DELETE                       |
+|   │   └── duration_ms            # Operation duration                        |
+|   │                                                                           |
+|   └── changes: list[AuditDiff]   # WHAT changed                              |
+|       ├── field_name             # Field that changed                        |
+|       ├── old_value              # Previous value                            |
+|       └── new_value              # New value                                 |
+|                                                                               |
++------------------------------------------------------------------------------+
+```
+
+### Query Capabilities
+
+```
++------------------------------------------------------------------------------+
+|                        Audit Query Filters                                    |
++------------------------------------------------------------------------------+
+|                                                                               |
+|   Time-based         | Actor-based        | Resource-based    | Content      |
+|   -------------------|--------------------|--------------------|--------------|
+|   start_time         | actor_id           | resource_type      | search_text  |
+|   end_time           | actor_type         | resource_id        | tags         |
+|                      | tenant_id          |                    |              |
+|                      | ip_address         |                    |              |
+|                                                                               |
+|   Category-based     | Severity-based     | Outcome-based      | Pagination   |
+|   -------------------|--------------------|--------------------|--------------|
+|   categories[]       | severities[]       | outcomes[]         | limit        |
+|                      |                    |                    | offset       |
+|                      |                    |                    | sort_by      |
+|                      |                    |                    | sort_order   |
+|                                                                               |
++------------------------------------------------------------------------------+
+```
+
+### Using Audit Logging
+
+```python
+from src.audit import (
+    AuditLogger,
+    AuditMiddleware,
+    AuditConfig,
+    AuditActor,
+    AuditResource,
+    AuditEventType,
+    AuditSeverity,
+    AuditQuery,
+    audit_action,
+)
+
+# 1. Add global middleware
+app.add_middleware(
+    AuditMiddleware,
+    config=AuditConfig(
+        enabled=True,
+        mask_sensitive_fields=True,
+        retention_days=90,
+    ),
+    exclude_paths=["/health", "/metrics"],
+)
+
+# 2. Use decorator for specific endpoints
+@app.post("/api/goals")
+@audit_action(AuditEventType.GOAL_SUBMITTED, resource_type="goal")
+async def create_goal(request: Request, data: GoalCreate):
+    return {"id": "goal-123"}
+
+# 3. Log events programmatically
+logger = AuditLogger()
+
+await logger.log_authentication(
+    event_type=AuditEventType.LOGIN_SUCCESS,
+    actor=AuditActor(actor_id="user-1", actor_type="user"),
+    success=True,
+)
+
+await logger.log_security(
+    event_type=AuditEventType.RATE_LIMIT_EXCEEDED,
+    severity=AuditSeverity.WARNING,
+    description="User exceeded rate limit",
+)
+
+# 4. Query audit logs
+result = await logger.storage.query(AuditQuery(
+    categories=[AuditEventCategory.SECURITY],
+    severities=[AuditSeverity.WARNING],
+    start_time=datetime.utcnow() - timedelta(hours=24),
+    limit=100,
+))
+
+for event in result.events:
+    print(f"{event.timestamp}: {event.event_type.value} - {event.description}")
 ```
 
 ---

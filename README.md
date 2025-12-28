@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.8-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.9-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1894,11 +1894,17 @@ agent-village/
 │   │   ├── service.py          # Tenant business logic
 │   │   └── api.py              # Tenant REST API
 │   │
-│   └── ratelimit/               # Rate limiting system
+│   ├── ratelimit/               # Rate limiting system
+│   │   ├── __init__.py
+│   │   ├── models.py           # Rate limit rules and config
+│   │   ├── storage.py          # In-memory and Redis backends
+│   │   ├── limiters.py         # Limiter algorithm implementations
+│   │   └── middleware.py       # FastAPI middleware and decorators
+│   │
+│   └── audit/                   # Audit logging system
 │       ├── __init__.py
-│       ├── models.py           # Rate limit rules and config
-│       ├── storage.py          # In-memory and Redis backends
-│       ├── limiters.py         # Limiter algorithm implementations
+│       ├── models.py           # Audit events and configuration
+│       ├── storage.py          # In-memory and file storage backends
 │       └── middleware.py       # FastAPI middleware and decorators
 │
 ├── tests/                       # Test suite
@@ -1916,6 +1922,7 @@ agent-village/
 │   ├── test_safety.py
 │   ├── test_tenancy.py          # Multi-tenancy tests
 │   ├── test_ratelimit.py        # Rate limiting tests
+│   ├── test_audit.py            # Audit logging tests
 │   ├── test_tools.py
 │   └── test_websocket.py
 │
@@ -2798,6 +2805,200 @@ OVERALL: PASSED - 54/54 Rate Limiting tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.9) - Audit Logging
+
+**24. Audit Logging System**
+
+Full **Audit Logging System** (`src/audit/`) for compliance and security:
+- Comprehensive event categories and types
+- Multiple severity levels and outcomes
+- Actor and resource tracking
+- Context-aware logging with request metadata
+- Sensitive data masking
+- FastAPI middleware integration
+- Decorator-based action auditing
+
+**Audit Event Categories:**
+- Location: `src/audit/models.py`
+```python
+class AuditEventCategory(str, Enum):
+    AUTHENTICATION = "authentication"  # Login, logout, token refresh
+    AUTHORIZATION = "authorization"    # Access granted/denied
+    DATA_ACCESS = "data_access"        # Read operations
+    DATA_MUTATION = "data_mutation"    # Create, update, delete
+    CONFIGURATION = "configuration"    # Settings changes
+    SYSTEM = "system"                  # System events
+    SECURITY = "security"              # Security-related events
+    AGENT = "agent"                    # Agent operations
+    GOAL = "goal"                      # Goal operations
+    TENANT = "tenant"                  # Tenant operations
+```
+
+**Audit Event Types:**
+```
++------------------------------------------------------------------------------+
+|                          Audit Event Types                                    |
++------------------------------------------------------------------------------+
+|  Authentication     | Authorization      | Data Events        | Security     |
+|---------------------|--------------------|--------------------|--------------|
+|  LOGIN_SUCCESS      | ACCESS_GRANTED     | RESOURCE_CREATED   | RATE_LIMIT   |
+|  LOGIN_FAILURE      | ACCESS_DENIED      | RESOURCE_READ      | SUSPICIOUS   |
+|  LOGOUT             | PERMISSION_CHANGED | RESOURCE_UPDATED   | IP_BLOCKED   |
+|  PASSWORD_CHANGE    | ROLE_ASSIGNED      | RESOURCE_DELETED   | API_KEY_GEN  |
++------------------------------------------------------------------------------+
+|  Agent Events       | Goal Events        | Tenant Events      | System       |
+|---------------------|--------------------|--------------------|--------------|
+|  AGENT_SPAWNED      | GOAL_SUBMITTED     | TENANT_CREATED     | SERVICE_START|
+|  AGENT_COMPLETED    | GOAL_STARTED       | TENANT_SUSPENDED   | HEALTH_CHECK |
+|  AGENT_FAILED       | GOAL_COMPLETED     | TIER_UPGRADED      | ERROR        |
+|  TOOL_EXECUTED      | GOAL_CANCELLED     | QUOTA_EXCEEDED     | WARNING      |
++------------------------------------------------------------------------------+
+```
+
+**Storage Backends:**
+- Location: `src/audit/storage.py`
+```
++------------------------------------------------------------------------------+
+|                         Storage Backends                                      |
++------------------------------------------------------------------------------+
+|  InMemoryAuditStorage                 |  FileAuditStorage                    |
+|---------------------------------------|--------------------------------------|
+|  • Async lock-protected               |  • JSON lines format                 |
+|  • Automatic cleanup by max events    |  • Daily file rotation               |
+|  • Full query support                 |  • Date range queries                |
+|  • Statistics tracking                |  • Automatic retention               |
++------------------------------------------------------------------------------+
+```
+
+**Middleware Integration:**
+- Location: `src/audit/middleware.py`
+```python
+from src.audit import AuditMiddleware, AuditConfig, audit_action
+
+# Global middleware
+app.add_middleware(
+    AuditMiddleware,
+    config=AuditConfig(
+        enabled=True,
+        log_read_access=False,  # Don't log reads (verbose)
+        mask_sensitive_fields=True,
+        retention_days=90,
+    ),
+    exclude_paths=["/health", "/metrics"],
+)
+
+# Decorator for specific actions
+@audit_action(AuditEventType.GOAL_SUBMITTED, resource_type="goal")
+async def create_goal(request: Request, data: GoalCreate):
+    return {"id": "goal-123"}
+```
+
+**Audit Logger API:**
+```python
+from src.audit import AuditLogger, AuditActor, AuditResource
+
+logger = AuditLogger()
+
+# Log authentication
+await logger.log_authentication(
+    event_type=AuditEventType.LOGIN_SUCCESS,
+    actor=AuditActor(actor_id="user-1", actor_type="user"),
+    success=True,
+)
+
+# Log security event
+await logger.log_security(
+    event_type=AuditEventType.RATE_LIMIT_EXCEEDED,
+    severity=AuditSeverity.WARNING,
+    description="IP exceeded rate limit",
+)
+
+# Query audit logs
+result = await logger.storage.query(AuditQuery(
+    categories=[AuditEventCategory.SECURITY],
+    severities=[AuditSeverity.WARNING, AuditSeverity.ERROR],
+    start_time=datetime.utcnow() - timedelta(hours=24),
+))
+```
+
+**Test Results (v0.1.9):**
+
+Audit Logging Tests (tests/test_audit.py):
+```
+======================================================================
+  AUDIT LOGGING TEST RESULTS
+======================================================================
+
+TestAuditModels (18/18 tests):
+  [PASS] test_audit_event_category_enum
+  [PASS] test_audit_event_type_enum
+  [PASS] test_audit_severity_enum
+  [PASS] test_audit_outcome_enum
+  [PASS] test_audit_actor_creation
+  [PASS] test_audit_actor_system
+  [PASS] test_audit_actor_anonymous
+  [PASS] test_audit_actor_to_dict
+  [PASS] test_audit_resource_creation
+  [PASS] test_audit_resource_to_dict
+  [PASS] test_audit_context_creation
+  [PASS] test_audit_diff_creation
+  [PASS] test_audit_event_creation
+  [PASS] test_audit_event_to_dict
+  [PASS] test_audit_event_from_dict
+  [PASS] test_audit_config_defaults
+  [PASS] test_audit_config_should_log
+  [PASS] test_audit_config_disabled
+
+TestInMemoryAuditStorage (11/11 tests):
+  [PASS] test_store_event
+  [PASS] test_store_batch
+  [PASS] test_query_by_category
+  [PASS] test_query_by_severity
+  [PASS] test_query_by_actor
+  [PASS] test_query_by_time_range
+  [PASS] test_query_text_search
+  [PASS] test_query_pagination
+  [PASS] test_delete_before
+  [PASS] test_max_events_limit
+  [PASS] test_stats
+
+TestFileAuditStorage (4/4 tests):
+  [PASS] test_store_and_query
+  [PASS] test_store_batch
+  [PASS] test_get_by_id
+  [PASS] test_stats
+
+TestAsyncBatchWriter (2/2 tests):
+  [PASS] test_batch_write
+  [PASS] test_manual_flush
+
+TestAuditLogger (9/9 tests):
+  [PASS] test_log_event
+  [PASS] test_log_authentication
+  [PASS] test_log_authorization
+  [PASS] test_log_data_access
+  [PASS] test_log_security
+  [PASS] test_log_agent_event
+  [PASS] test_log_goal_event
+  [PASS] test_log_tenant_event
+  [PASS] test_sensitive_data_masking
+
+TestAuditMiddleware (3/3 tests):
+  [PASS] test_should_exclude_health
+  [PASS] test_get_event_type_from_method
+  [PASS] test_extract_resource_from_path
+
+TestAuditActionDecorator (4/4 tests):
+  [PASS] test_decorator_preserves_function
+  [PASS] test_decorator_preserves_exception
+  [PASS] test_decorator_preserves_function_name
+  [PASS] test_decorator_with_args
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 51/51 Audit Logging tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -2809,11 +3010,11 @@ OVERALL: PASSED - 54/54 Rate Limiting tests passed
 - [x] Plugin system for custom agents
 - [x] Web dashboard (standalone)
 - [x] Multi-tenancy support
+- [x] Rate limiting
+- [x] Audit logging
 
 #### 📋 Planned
 
-- [ ] Rate limiting
-- [ ] Audit logging
 - [ ] SSO integration
 
 ---
