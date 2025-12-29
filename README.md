@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.14-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.15-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1931,10 +1931,16 @@ agent-village/
 │   │   ├── service.py          # API key service layer
 │   │   └── middleware.py       # FastAPI middleware and decorators
 │   │
-│   └── oauth/                   # OAuth 2.0 / OpenID Connect
+│   ├── oauth/                   # OAuth 2.0 / OpenID Connect
+│   │   ├── __init__.py
+│   │   ├── models.py           # OAuth clients, tokens, OIDC
+│   │   ├── service.py          # OAuth service layer
+│   │   └── middleware.py       # FastAPI middleware and routes
+│   │
+│   └── sessions/               # Session management
 │       ├── __init__.py
-│       ├── models.py           # OAuth clients, tokens, OIDC
-│       ├── service.py          # OAuth service layer
+│       ├── models.py           # Session models, device info
+│       ├── service.py          # Session service layer
 │       └── middleware.py       # FastAPI middleware and routes
 │
 ├── tests/                       # Test suite
@@ -1958,6 +1964,7 @@ agent-village/
 │   ├── test_mfa.py              # MFA tests
 │   ├── test_apikeys.py          # API key tests
 │   ├── test_oauth.py            # OAuth 2.0 tests
+│   ├── test_sessions.py         # Session management tests
 │   ├── test_tools.py
 │   └── test_websocket.py
 │
@@ -4075,6 +4082,185 @@ OVERALL: PASSED - 55/55 OAuth tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.15) - Session Management
+
+**30. Session Management System**
+
+Full **Session Management** (`src/sessions/`) implementation:
+
+- **Session Models** (`models.py`):
+  - `Session` - Core session model with lifecycle management
+  - `SessionStatus` - ACTIVE, EXPIRED, REVOKED, LOCKED states
+  - `SessionType` - WEB, API, MOBILE, SERVICE session types
+  - `AuthMethod` - PASSWORD, MFA, SSO, OAUTH, API_KEY, etc.
+  - `DeviceInfo` - Device fingerprinting from User-Agent
+  - `GeoLocation` - IP-based location tracking
+  - `SessionConfig` - Configurable session settings
+
+- **Session Service** (`service.py`):
+  - `SessionStore` - In-memory session storage with indexing
+  - `SessionService` - Full session lifecycle management
+  - Session creation with limits enforcement
+  - Token-based validation with SHA-256 hashing
+  - Sliding expiration (idle + absolute timeouts)
+  - Session elevation for sensitive operations
+  - Token rotation for enhanced security
+  - MFA verification status tracking
+  - Session locking/unlocking for security
+
+- **Session Middleware** (`middleware.py`):
+  - `SessionMiddleware` - FastAPI middleware for auto-validation
+  - `SessionMiddlewareConfig` - Configurable paths and settings
+  - `@require_session` - Decorator for protected routes
+  - `@require_mfa` - Decorator for MFA-required routes
+  - `@require_elevated` - Decorator for elevated access routes
+  - `SessionDependency` - FastAPI dependency injection
+  - Session CRUD routes
+  - Admin routes for session management
+
+**Session Features:**
+
+| Feature | Description |
+|---------|-------------|
+| Token Security | SHA-256 hashed tokens (plaintext never stored) |
+| Sliding Expiration | Idle timeout + absolute timeout |
+| Session Elevation | Temporary elevated privileges |
+| Token Rotation | Rotate tokens without re-authentication |
+| Device Tracking | Fingerprint devices from User-Agent |
+| IP Binding | Optional IP-bound sessions |
+| MFA Integration | Track MFA verification status |
+| Session Limits | Max sessions per user/device |
+| Lock/Unlock | Lock suspicious sessions |
+
+**Session Configuration:**
+
+```python
+from src.sessions import SessionConfig
+
+config = SessionConfig(
+    # Token settings
+    token_length=32,
+
+    # Expiration
+    default_ttl_hours=24,
+    max_ttl_hours=168,          # 7 days
+    idle_timeout_minutes=60,
+    remember_me_ttl_days=30,
+
+    # Security
+    bind_to_ip=False,
+    require_mfa_for_sensitive=True,
+    rotate_token_on_use=False,
+
+    # Limits
+    max_sessions_per_user=10,
+    max_sessions_per_device=3,
+
+    # Cookie settings
+    cookie_name="session_id",
+    cookie_secure=True,
+    cookie_httponly=True,
+    cookie_samesite="lax",
+)
+```
+
+**Session Endpoints:**
+
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          Session Management Endpoints                          ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Endpoint                              │  Description                          ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  POST   /sessions                      │  Create new session                   ║
+║  GET    /sessions                      │  List user's sessions                 ║
+║  GET    /sessions/current              │  Get current session                  ║
+║  GET    /sessions/{id}                 │  Get session by ID                    ║
+║  POST   /sessions/{id}/refresh         │  Refresh/extend session               ║
+║  POST   /sessions/{id}/elevate         │  Elevate session privileges           ║
+║  POST   /sessions/{id}/verify-mfa      │  Mark session MFA verified            ║
+║  POST   /sessions/{id}/rotate-token    │  Rotate session token                 ║
+║  DELETE /sessions/{id}                 │  Revoke session                       ║
+║  DELETE /sessions                      │  Revoke all sessions                  ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                          Admin Endpoints                                       ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  POST   /admin/sessions/cleanup        │  Clean up expired sessions            ║
+║  GET    /admin/sessions/user/{id}      │  Get user's sessions (admin)          ║
+║  POST   /admin/sessions/{id}/lock      │  Lock session                         ║
+║  POST   /admin/sessions/{id}/unlock    │  Unlock session                       ║
+║  DELETE /admin/sessions/user/{id}      │  Revoke all user sessions             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
+**Session Tests:**
+
+Session Tests (tests/test_sessions.py):
+```
+  Model Tests (41 tests)
+  [PASS] test_session_status_values
+  [PASS] test_session_type_values
+  [PASS] test_auth_method_values
+  [PASS] test_device_info_from_user_agent
+  [PASS] test_session_create
+  [PASS] test_session_verify_token
+  [PASS] test_session_is_expired
+  [PASS] test_session_touch
+  [PASS] test_session_elevate
+  [PASS] test_session_revoke
+  [PASS] test_session_lock_unlock
+
+  Store Tests (6 tests)
+  [PASS] test_save_and_get_session
+  [PASS] test_get_session_by_token
+  [PASS] test_get_sessions_by_user
+  [PASS] test_delete_session
+  [PASS] test_count_active_sessions
+  [PASS] test_cleanup_expired
+
+  Service Tests (18 tests)
+  [PASS] test_create_session
+  [PASS] test_validate_session
+  [PASS] test_validate_session_expired
+  [PASS] test_validate_session_revoked
+  [PASS] test_validate_session_locked
+  [PASS] test_validate_session_ip_mismatch
+  [PASS] test_revoke_session
+  [PASS] test_elevate_session
+  [PASS] test_rotate_token
+  [PASS] test_session_limit
+
+  Middleware Tests (7 tests)
+  [PASS] test_middleware_excludes_paths
+  [PASS] test_require_session_decorator
+  [PASS] test_require_mfa_decorator
+  [PASS] test_require_elevated_decorator
+
+  Route Tests (8 tests)
+  [PASS] test_create_session_route
+  [PASS] test_get_session_route
+  [PASS] test_refresh_session_route
+  [PASS] test_revoke_session_route
+  [PASS] test_elevate_session_route
+  [PASS] test_rotate_token_route
+
+  Admin Route Tests (4 tests)
+  [PASS] test_revoke_all_user_sessions
+  [PASS] test_lock_session
+  [PASS] test_unlock_session
+  [PASS] test_cleanup_expired
+
+  Integration Tests (4 tests)
+  [PASS] test_full_session_lifecycle
+  [PASS] test_multiple_sessions_per_user
+  [PASS] test_session_security_features
+  [PASS] test_session_with_mfa
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 92/92 Session tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -4093,10 +4279,10 @@ OVERALL: PASSED - 55/55 OAuth tests passed
 - [x] Multi-factor authentication (MFA)
 - [x] API key management
 - [x] OAuth 2.0 / OpenID Connect
+- [x] Session management
 
 #### 📋 Planned
 
-- [ ] Session management
 - [ ] Webhook system
 
 ---

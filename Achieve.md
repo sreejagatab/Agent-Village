@@ -3070,6 +3070,190 @@ async def get_profile(request: Request):
 
 ---
 
+## Session Management
+
+### Session Management Architecture
+
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       Session Management System                                ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║   ┌────────────────────────────────────────────────────────────────────┐       ║
+║   │                      Session Components                             │       ║
+║   │  ┌─────────────────────┐  ┌─────────────────────────────────────┐  │       ║
+║   │  │ SessionService      │  │ SessionMiddleware                   │  │       ║
+║   │  │                     │  │                                     │  │       ║
+║   │  │ • create_session()  │  │ • Token extraction (cookie/header)  │  │       ║
+║   │  │ • validate_session()│  │ • Session validation                │  │       ║
+║   │  │ • refresh_session() │  │ • Request state injection           │  │       ║
+║   │  │ • revoke_session()  │  │ • Path exclusions                   │  │       ║
+║   │  │ • elevate_session() │  │                                     │  │       ║
+║   │  │ • rotate_token()    │  └─────────────────────────────────────┘  │       ║
+║   │  │ • lock_session()    │                                           │       ║
+║   │  └─────────────────────┘                                           │       ║
+║   │                                                                     │       ║
+║   │  ┌─────────────────────────────────────────────────────────────┐   │       ║
+║   │  │                    Session Models                            │   │       ║
+║   │  │                                                              │   │       ║
+║   │  │  Session → SessionStatus → SessionType → AuthMethod         │   │       ║
+║   │  │     │                                                        │   │       ║
+║   │  │     ├── DeviceInfo (User-Agent parsing)                      │   │       ║
+║   │  │     ├── GeoLocation (IP-based location)                      │   │       ║
+║   │  │     ├── Idle timeout + Absolute timeout                      │   │       ║
+║   │  │     ├── MFA verification status                              │   │       ║
+║   │  │     └── Session elevation                                    │   │       ║
+║   │  │                                                              │   │       ║
+║   │  └─────────────────────────────────────────────────────────────┘   │       ║
+║   │                                                                     │       ║
+║   │  ┌─────────────────────────────────────────────────────────────┐   │       ║
+║   │  │                    Session Store                             │   │       ║
+║   │  │                                                              │   │       ║
+║   │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │   │       ║
+║   │  │  │ By Session  │  │  By Token   │  │  By User    │          │   │       ║
+║   │  │  │    ID       │  │   Hash      │  │    ID       │          │   │       ║
+║   │  │  └─────────────┘  └─────────────┘  └─────────────┘          │   │       ║
+║   │  │                                                              │   │       ║
+║   │  └─────────────────────────────────────────────────────────────┘   │       ║
+║   └─────────────────────────────────────────────────────────────────────┘       ║
+║                                                                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
+### Session Lifecycle
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          Session Lifecycle                                    │
+│                                                                               │
+│   CREATE              VALIDATE              TOUCH                REVOKE       │
+│      │                    │                   │                    │          │
+│      ▼                    ▼                   ▼                    ▼          │
+│  ┌───────┐           ┌────────┐          ┌────────┐          ┌────────┐      │
+│  │ New   │──────────▶│ Active │─────────▶│ Active │─────────▶│Revoked │      │
+│  │Session│           │        │          │(touched)│          │        │      │
+│  └───────┘           └────────┘          └────────┘          └────────┘      │
+│      │                    │                   │                    │          │
+│      │                    │ (idle timeout)    │                    │          │
+│      │                    ▼                   │                    │          │
+│      │               ┌────────┐               │                    │          │
+│      │               │Expired │◀──────────────┘                    │          │
+│      │               │        │  (absolute timeout)                │          │
+│      │               └────────┘                                    │          │
+│      │                                                             │          │
+│      │   LOCK                UNLOCK                                │          │
+│      │    │                    │                                   │          │
+│      ▼    ▼                    ▼                                   │          │
+│  ┌────────────┐          ┌────────┐                                │          │
+│  │  Locked    │◀────────▶│ Active │                                │          │
+│  │ (security) │          │        │                                │          │
+│  └────────────┘          └────────┘                                │          │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Using Session Management
+
+```python
+from src.sessions import (
+    SessionService,
+    SessionConfig,
+    SessionMiddleware,
+    SessionMiddlewareConfig,
+    SessionType,
+    AuthMethod,
+    DeviceInfo,
+    require_session,
+    require_mfa,
+    require_elevated,
+)
+
+# 1. Initialize session service
+session_service = SessionService(
+    config=SessionConfig(
+        default_ttl_hours=24,
+        idle_timeout_minutes=60,
+        max_sessions_per_user=10,
+        bind_to_ip=False,
+    )
+)
+
+# 2. Add session middleware to FastAPI
+app.add_middleware(
+    SessionMiddleware,
+    session_service=session_service,
+    config=SessionMiddlewareConfig(
+        exclude_paths=["/health", "/auth/login"],
+        require_session_by_default=False,
+    ),
+)
+
+# 3. Create a session (e.g., after login)
+session, token = await session_service.create_session(
+    user_id="user123",
+    session_type=SessionType.WEB,
+    auth_method=AuthMethod.PASSWORD,
+    device_info=DeviceInfo.from_user_agent(request.headers.get("User-Agent")),
+    ip_address=request.client.host,
+    mfa_verified=False,
+)
+
+# 4. Validate a session
+result = await session_service.validate_session(
+    token=token,
+    ip_address=request.client.host,
+    touch=True,  # Update last activity
+)
+
+if result.valid:
+    user_id = result.session.user_id
+else:
+    # Handle error: result.error_code, result.error
+
+# 5. Protect endpoints with decorators
+@app.get("/api/profile")
+@require_session()
+async def get_profile(request: Request):
+    return {"user_id": request.state.user_id}
+
+@app.get("/api/settings")
+@require_mfa()  # Requires MFA-verified session
+async def get_settings(request: Request):
+    return {"settings": {...}}
+
+@app.post("/api/admin/action")
+@require_elevated()  # Requires elevated session
+async def admin_action(request: Request):
+    return {"result": "success"}
+
+# 6. Elevate session (after re-authentication)
+session = await session_service.elevate_session(
+    session_id=session.session_id,
+    duration_minutes=15,
+)
+
+# 7. Rotate token (security measure)
+session, new_token = await session_service.rotate_token(session_id)
+
+# 8. Revoke session (logout)
+await session_service.revoke_session(
+    session_id=session.session_id,
+    reason="User logout",
+)
+
+# 9. Revoke all sessions (logout everywhere)
+count = await session_service.revoke_all_sessions(
+    user_id="user123",
+    except_session_id=current_session_id,  # Keep current session
+)
+
+# 10. Admin: Lock suspicious session
+await session_service.lock_session(session_id, reason="Suspicious activity")
+await session_service.unlock_session(session_id)
+```
+
+---
+
 <p align="center">
   <strong>Agent Village - Intelligent Multi-Agent Orchestration</strong><br>
   <em>Achieve complex goals through coordinated AI collaboration</em>
