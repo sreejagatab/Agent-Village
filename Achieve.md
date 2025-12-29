@@ -3254,6 +3254,312 @@ await session_service.unlock_session(session_id)
 
 ---
 
+## Webhook System
+
+### Webhook System Architecture
+
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                           Webhook System                                       ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║   ┌────────────────────────────────────────────────────────────────────┐       ║
+║   │                     Webhook Components                              │       ║
+║   │  ┌─────────────────────┐  ┌─────────────────────────────────────┐  │       ║
+║   │  │ WebhookService      │  │ WebhookStore                        │  │       ║
+║   │  │                     │  │                                     │  │       ║
+║   │  │ • create_webhook()  │  │ • In-memory storage with indexing   │  │       ║
+║   │  │ • update_webhook()  │  │ • By owner, event type, tenant      │  │       ║
+║   │  │ • delete_webhook()  │  │ • Delivery tracking                 │  │       ║
+║   │  │ • publish_event()   │  │ • Pending delivery queue            │  │       ║
+║   │  │ • process_delivery()│  └─────────────────────────────────────┘  │       ║
+║   │  │ • retry_delivery()  │                                           │       ║
+║   │  └─────────────────────┘                                           │       ║
+║   └────────────────────────────────────────────────────────────────────┘       ║
+║                                                                                ║
+║   ┌────────────────────────────────────────────────────────────────────┐       ║
+║   │                     Event Types                                     │       ║
+║   │                                                                     │       ║
+║   │   Goal Events      │ Agent Events     │ Task Events                 │       ║
+║   │   • goal.created   │ • agent.spawned  │ • task.created              │       ║
+║   │   • goal.updated   │ • agent.updated  │ • task.started              │       ║
+║   │   • goal.completed │ • agent.completed│ • task.completed            │       ║
+║   │   • goal.failed    │ • agent.failed   │ • task.failed               │       ║
+║   │                                                                     │       ║
+║   │   Memory Events    │ Safety Events    │ System Events               │       ║
+║   │   • memory.stored  │ • safety.alert   │ • system.startup            │       ║
+║   │   • memory.retrieved│ • safety.violation│ • system.shutdown         │       ║
+║   │   • memory.cleared │ • safety.blocked │ • system.health_check       │       ║
+║   │                                                                     │       ║
+║   │   User Events      │ Session Events   │ Auth Events                 │       ║
+║   │   • user.created   │ • session.created│ • auth.login                │       ║
+║   │   • user.updated   │ • session.validated│ • auth.logout             │       ║
+║   │   • user.deleted   │ • session.revoked│ • auth.mfa_verified         │       ║
+║   │                                                                     │       ║
+║   │   Wildcard: * (subscribe to all events)                             │       ║
+║   └────────────────────────────────────────────────────────────────────┘       ║
+║                                                                                ║
+║   ┌────────────────────────────────────────────────────────────────────┐       ║
+║   │                     Delivery Pipeline                               │       ║
+║   │                                                                     │       ║
+║   │   Event Published                                                   │       ║
+║   │         │                                                           │       ║
+║   │         ▼                                                           │       ║
+║   │   ┌─────────────────┐                                               │       ║
+║   │   │ Find Matching   │  Filter by event type, tenant, custom filters │       ║
+║   │   │ Webhooks        │                                               │       ║
+║   │   └────────┬────────┘                                               │       ║
+║   │            │                                                        │       ║
+║   │            ▼                                                        │       ║
+║   │   ┌─────────────────┐                                               │       ║
+║   │   │ Create Delivery │  Queue delivery for each matching webhook     │       ║
+║   │   │ Records         │                                               │       ║
+║   │   └────────┬────────┘                                               │       ║
+║   │            │                                                        │       ║
+║   │            ▼                                                        │       ║
+║   │   ┌─────────────────┐                                               │       ║
+║   │   │ Sign & Send     │  HMAC-SHA256 signature + timestamp            │       ║
+║   │   │ HTTP POST       │                                               │       ║
+║   │   └────────┬────────┘                                               │       ║
+║   │            │                                                        │       ║
+║   │     ┌──────┴──────┐                                                 │       ║
+║   │     ▼             ▼                                                 │       ║
+║   │  Success       Failure                                              │       ║
+║   │     │             │                                                 │       ║
+║   │     │             ▼                                                 │       ║
+║   │     │      Retry with Exponential Backoff                           │       ║
+║   │     │      (1min, 2min, 4min, 8min, 16min)                          │       ║
+║   │     │             │                                                 │       ║
+║   │     ▼             ▼                                                 │       ║
+║   │  DELIVERED     EXPIRED (after max attempts)                         │       ║
+║   └────────────────────────────────────────────────────────────────────┘       ║
+║                                                                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
+### Webhook Features
+
+| Feature | Description |
+|---------|-------------|
+| **Event-Driven Publishing** | Publish events to subscribed webhooks automatically |
+| **Flexible Subscriptions** | Subscribe to specific events, categories, or all events (*) |
+| **Custom Filters** | Filter events by payload fields (e.g., `{"goal_id": "goal123"}`) |
+| **Payload Signing** | HMAC-SHA256 signatures for payload verification |
+| **Timestamp Validation** | Prevent replay attacks with timestamp verification |
+| **Retry with Backoff** | Exponential backoff: 1min, 2min, 4min, 8min, 16min |
+| **Delivery Tracking** | Track delivery status, attempts, and response details |
+| **Auto-Disable** | Disable webhooks after consecutive failures |
+| **Secret Rotation** | Rotate webhook secrets without downtime |
+| **Rate Limiting** | Per-owner webhook limits |
+| **Local Handlers** | Subscribe in-process handlers for local event processing |
+
+### Webhook Status Flow
+
+```
+                    ┌──────────────────────────────────────────────────┐
+                    │                  Webhook Lifecycle               │
+                    └──────────────────────────────────────────────────┘
+
+    ┌─────────┐        ┌─────────┐        ┌─────────┐        ┌─────────┐
+    │ ACTIVE  │◄──────▶│ PAUSED  │        │ DISABLED│        │ FAILED  │
+    └────┬────┘        └─────────┘        └────▲────┘        └────▲────┘
+         │                                      │                  │
+         │   User pauses/resumes                │                  │
+         │                                      │                  │
+         └──────────────────────────────────────┴──────────────────┘
+                 Auto-disable on failures / Manual disable
+
+    Delivery Status:
+    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+    │ PENDING │───▶│DELIVERED│    │RETRYING │───▶│ EXPIRED │
+    └────┬────┘    └─────────┘    └────▲────┘    └─────────┘
+         │                              │
+         └──────────────────────────────┘
+                 On failure (if retries remaining)
+```
+
+### Using Webhooks
+
+```python
+from src.webhooks import (
+    WebhookService,
+    WebhookStore,
+    WebhookConfig,
+    EventType,
+    EventCategory,
+    WebhookEvent,
+    create_webhook_routes,
+    create_webhook_admin_routes,
+    publish_webhook_event,
+)
+from fastapi import FastAPI
+
+app = FastAPI()
+
+# 1. Initialize the webhook system
+config = WebhookConfig(
+    max_webhooks_per_owner=10,
+    max_retries=5,
+    signature_tolerance_seconds=300,  # 5 minutes
+)
+store = WebhookStore()
+webhook_service = WebhookService(store, config)
+
+# 2. Add routes to your app
+app.include_router(
+    create_webhook_routes(webhook_service),
+    prefix="/api/webhooks",
+    tags=["webhooks"],
+)
+app.include_router(
+    create_webhook_admin_routes(webhook_service),
+    prefix="/api/admin/webhooks",
+    tags=["webhooks-admin"],
+)
+
+# 3. Create a webhook endpoint
+webhook = await webhook_service.create_webhook(
+    url="https://example.com/webhook",
+    events=["goal.completed", "goal.failed"],
+    owner_id="user123",
+    name="Goal Notifications",
+    description="Notifies when goals complete or fail",
+    filters={"tenant_id": "tenant1"},  # Only events matching this filter
+)
+print(f"Webhook ID: {webhook.webhook_id}")
+print(f"Secret: {webhook.secret}")  # Store securely!
+
+# 4. Publish an event (deliveries are created for matching webhooks)
+deliveries = await webhook_service.publish_event(
+    event_type=EventType.GOAL_COMPLETED,
+    data={
+        "goal_id": "goal_abc123",
+        "title": "Complete project",
+        "result": "Successfully completed all tasks",
+    },
+    tenant_id="tenant1",
+)
+print(f"Created {len(deliveries)} deliveries")
+
+# 5. Process pending deliveries (background task)
+await webhook_service.process_pending_deliveries()
+
+# 6. Use decorator for automatic event publishing
+@app.post("/api/goals")
+@publish_webhook_event(
+    webhook_service,
+    event_type=EventType.GOAL_CREATED,
+    data_extractor=lambda req, resp: {"goal_id": resp.get("id")},
+)
+async def create_goal(request: Request):
+    goal = {"id": "goal_xyz", "title": "New Goal"}
+    return goal
+
+# 7. Subscribe local handlers (in-process event handling)
+async def on_goal_completed(event: WebhookEvent):
+    print(f"Goal completed: {event.data}")
+
+webhook_service.subscribe_local("goal.completed", on_goal_completed)
+
+# 8. Verify webhook signatures (on receiving end)
+from src.webhooks import WebhookEndpoint
+
+# Extract from headers
+signature = request.headers.get("X-Webhook-Signature")
+timestamp = request.headers.get("X-Webhook-Timestamp")
+body = await request.body()
+
+# Create endpoint with the stored secret
+endpoint = WebhookEndpoint(
+    webhook_id="...",
+    url="...",
+    secret=stored_secret,
+    events=[],
+    owner_id="...",
+)
+
+# Verify
+is_valid = endpoint.verify_signature(
+    body.decode(),
+    signature,
+    int(timestamp),
+    tolerance_seconds=300,
+)
+
+# 9. Webhook management
+await webhook_service.pause_webhook(webhook.webhook_id)  # Stop receiving events
+await webhook_service.resume_webhook(webhook.webhook_id)  # Resume receiving
+new_secret = await webhook_service.rotate_secret(webhook.webhook_id)  # New secret
+
+# 10. Get delivery statistics
+stats = await webhook_service.get_webhook_stats(webhook.webhook_id)
+print(f"Total deliveries: {stats['total_deliveries']}")
+print(f"Successful: {stats['successful_deliveries']}")
+print(f"Failed: {stats['failed_deliveries']}")
+
+# 11. Cleanup old deliveries
+deleted = await webhook_service.cleanup_old_deliveries(days=30)
+print(f"Cleaned up {deleted} old deliveries")
+```
+
+### Webhook Payload Format
+
+```json
+{
+  "event_id": "evt_a1b2c3d4e5f6g7h8",
+  "event_type": "goal.completed",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "data": {
+    "goal_id": "goal_abc123",
+    "title": "Complete project",
+    "result": "Successfully completed all tasks"
+  },
+  "tenant_id": "tenant1"
+}
+```
+
+### Request Headers
+
+```
+POST /webhook HTTP/1.1
+Host: example.com
+Content-Type: application/json
+X-Webhook-Signature: sha256=abc123...
+X-Webhook-Timestamp: 1705316400
+X-Webhook-Event: goal.completed
+X-Webhook-Delivery-ID: dlv_xyz789
+User-Agent: AgentVillage-Webhook/1.0
+```
+
+### Signature Verification (Receiving End)
+
+```python
+import hmac
+import hashlib
+import time
+
+def verify_webhook(payload: str, signature: str, timestamp: str, secret: str) -> bool:
+    """Verify a webhook signature."""
+    # Check timestamp is recent (within 5 minutes)
+    ts = int(timestamp)
+    if abs(time.time() - ts) > 300:
+        return False  # Too old, possible replay attack
+
+    # Recreate the signature
+    message = f"{ts}.{payload}"
+    expected = hmac.new(
+        secret.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    # Compare signatures
+    provided = signature.replace("sha256=", "")
+    return hmac.compare_digest(expected, provided)
+```
+
+---
+
 <p align="center">
   <strong>Agent Village - Intelligent Multi-Agent Orchestration</strong><br>
   <em>Achieve complex goals through coordinated AI collaboration</em>

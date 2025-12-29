@@ -4261,8 +4261,176 @@ OVERALL: PASSED - 92/92 Session tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.16) - Webhook System
+
+**31. Webhook System**
+
+Full **Webhook System** (`src/webhooks/`) implementation:
+
+- **Webhook Models** (`models.py`):
+  - `WebhookEndpoint` - Webhook configuration with URL, events, filters
+  - `WebhookEvent` - Event payload with type, data, timestamp
+  - `WebhookDelivery` - Delivery tracking with attempts and status
+  - `DeliveryAttempt` - Individual delivery attempt with response
+  - `WebhookStatus` - ACTIVE, PAUSED, DISABLED, FAILED states
+  - `DeliveryStatus` - PENDING, DELIVERED, FAILED, RETRYING, EXPIRED
+  - `EventType` - 30+ event types across 9 categories
+  - `EventCategory` - goal, agent, task, memory, safety, system, user, session, auth
+  - HMAC-SHA256 signature generation and verification
+
+- **Webhook Service** (`service.py`):
+  - `WebhookStore` - In-memory storage with indexing by owner, event, tenant
+  - `WebhookService` - Full webhook lifecycle management
+  - Event publishing to matching webhooks
+  - Delivery processing with retries
+  - Exponential backoff (1min, 2min, 4min, 8min, 16min)
+  - Local event handler subscriptions
+  - Cleanup old deliveries
+
+- **Webhook Middleware** (`middleware.py`):
+  - `WebhookCreateRequest` / `WebhookUpdateRequest` - Pydantic models
+  - `@publish_webhook_event` - Decorator for automatic event publishing
+  - `create_webhook_routes()` - User webhook management endpoints
+  - `create_webhook_admin_routes()` - Admin endpoints
+  - `create_webhook_receiver_routes()` - Test receiver endpoints
+
+**Webhook Features:**
+
+| Feature | Description |
+|---------|-------------|
+| Event-Driven | Publish events to subscribed webhooks automatically |
+| Flexible Subscriptions | Subscribe to specific events, categories, or all (*) |
+| Custom Filters | Filter events by payload fields |
+| Payload Signing | HMAC-SHA256 signatures for verification |
+| Replay Protection | Timestamp validation prevents replay attacks |
+| Retry with Backoff | Exponential backoff up to 5 attempts |
+| Delivery Tracking | Track status, attempts, responses |
+| Auto-Disable | Disable webhooks after consecutive failures |
+| Secret Rotation | Rotate secrets without downtime |
+| Local Handlers | In-process event subscriptions |
+
+**Webhook Endpoints:**
+
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          Webhook Management Endpoints                          ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Endpoint                              │  Description                          ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  POST   /webhooks                      │  Create webhook endpoint              ║
+║  GET    /webhooks                      │  List owner's webhooks                ║
+║  GET    /webhooks/{id}                 │  Get webhook by ID                    ║
+║  PUT    /webhooks/{id}                 │  Update webhook                       ║
+║  DELETE /webhooks/{id}                 │  Delete webhook                       ║
+║  POST   /webhooks/{id}/pause           │  Pause webhook                        ║
+║  POST   /webhooks/{id}/resume          │  Resume webhook                       ║
+║  POST   /webhooks/{id}/rotate-secret   │  Rotate webhook secret                ║
+║  GET    /webhooks/{id}/deliveries      │  List webhook deliveries              ║
+║  GET    /webhooks/{id}/stats           │  Get webhook statistics               ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                          Admin Endpoints                                       ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  GET    /admin/webhooks/event-types    │  List available event types           ║
+║  POST   /admin/webhooks/cleanup        │  Clean up old deliveries              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
+**Webhook Tests:**
+
+```
+Webhook Tests (tests/test_webhooks.py):
+
+  Model Tests (22 tests)
+  [PASS] test_status_values
+  [PASS] test_delivery_status_values
+  [PASS] test_goal_events
+  [PASS] test_agent_events
+  [PASS] test_wildcard_event
+  [PASS] test_create_event
+  [PASS] test_event_to_dict
+  [PASS] test_event_to_json
+  [PASS] test_create_endpoint
+  [PASS] test_subscribes_to_specific_event
+  [PASS] test_subscribes_to_all_events
+  [PASS] test_matches_filters
+  [PASS] test_matches_filters_list
+  [PASS] test_sign_payload
+  [PASS] test_verify_signature
+  [PASS] test_verify_signature_expired
+  [PASS] test_record_success
+  [PASS] test_record_failure
+  [PASS] test_auto_disable_on_failures
+  [PASS] test_failure_rate
+  [PASS] test_to_dict
+  [PASS] test_to_dict_include_secret
+
+  Delivery Tests (7 tests)
+  [PASS] test_complete_success
+  [PASS] test_complete_failure
+  [PASS] test_complete_error
+  [PASS] test_create_delivery
+  [PASS] test_add_successful_attempt
+  [PASS] test_add_failed_attempt_with_retry
+  [PASS] test_max_attempts_exceeded
+
+  Store Tests (8 tests)
+  [PASS] test_save_and_get_webhook
+  [PASS] test_get_webhooks_by_owner
+  [PASS] test_get_webhooks_for_event
+  [PASS] test_delete_webhook
+  [PASS] test_count_by_owner
+  [PASS] test_save_and_get_delivery
+  [PASS] test_get_pending_deliveries
+  [PASS] test_default_values
+
+  Service Tests (14 tests)
+  [PASS] test_create_webhook
+  [PASS] test_create_webhook_limit
+  [PASS] test_get_webhook
+  [PASS] test_get_webhook_not_found
+  [PASS] test_update_webhook
+  [PASS] test_delete_webhook
+  [PASS] test_list_webhooks
+  [PASS] test_pause_and_resume_webhook
+  [PASS] test_rotate_secret
+  [PASS] test_publish_event
+  [PASS] test_publish_event_filtered
+  [PASS] test_subscribe_local_handler
+  [PASS] test_get_webhook_stats
+  [PASS] test_cleanup_old_deliveries
+
+  Route Tests (10 tests)
+  [PASS] test_create_webhook_route
+  [PASS] test_list_webhooks_route
+  [PASS] test_get_webhook_route
+  [PASS] test_update_webhook_route
+  [PASS] test_delete_webhook_route
+  [PASS] test_pause_webhook_route
+  [PASS] test_resume_webhook_route
+  [PASS] test_rotate_secret_route
+  [PASS] test_get_stats_route
+  [PASS] test_list_event_types
+
+  Admin & Receiver Tests (4 tests)
+  [PASS] test_cleanup_deliveries
+  [PASS] test_receive_webhook
+  [PASS] test_list_received_webhooks
+  [PASS] test_clear_received_webhooks
+
+  Integration Tests (3 tests)
+  [PASS] test_full_webhook_lifecycle
+  [PASS] test_event_filtering
+  [PASS] test_signature_verification_flow
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 68/68 Webhook tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
+- [x] Webhook system
+- [x] Session management
 - [x] Memory search API endpoint
 - [x] Agent log streaming
 - [x] Real-time agent monitoring UI
