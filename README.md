@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.13-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.14-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1925,11 +1925,17 @@ agent-village/
 │   │   ├── service.py          # MFA service layer
 │   │   └── middleware.py       # FastAPI middleware and decorators
 │   │
-│   └── apikeys/                 # API Key Management
+│   ├── apikeys/                 # API Key Management
+│   │   ├── __init__.py
+│   │   ├── models.py           # Key models, scopes, rate limits
+│   │   ├── service.py          # API key service layer
+│   │   └── middleware.py       # FastAPI middleware and decorators
+│   │
+│   └── oauth/                   # OAuth 2.0 / OpenID Connect
 │       ├── __init__.py
-│       ├── models.py           # Key models, scopes, rate limits
-│       ├── service.py          # API key service layer
-│       └── middleware.py       # FastAPI middleware and decorators
+│       ├── models.py           # OAuth clients, tokens, OIDC
+│       ├── service.py          # OAuth service layer
+│       └── middleware.py       # FastAPI middleware and routes
 │
 ├── tests/                       # Test suite
 │   ├── __init__.py
@@ -1951,6 +1957,7 @@ agent-village/
 │   ├── test_rbac.py             # RBAC tests
 │   ├── test_mfa.py              # MFA tests
 │   ├── test_apikeys.py          # API key tests
+│   ├── test_oauth.py            # OAuth 2.0 tests
 │   ├── test_tools.py
 │   └── test_websocket.py
 │
@@ -3870,6 +3877,204 @@ OVERALL: PASSED - 58/58 API Key tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.14) - OAuth 2.0 / OpenID Connect
+
+**29. OAuth 2.0 System**
+
+Full **OAuth 2.0 / OIDC** (`src/oauth/`) implementation:
+
+- Authorization Code Flow with PKCE
+- Client Credentials Grant
+- Refresh Token Grant
+- Device Authorization Grant (RFC 8628)
+- Token Introspection (RFC 7662)
+- Token Revocation (RFC 7009)
+- OpenID Connect ID Tokens
+- OIDC Discovery endpoint
+
+**Supported Grant Types:**
+```python
+class GrantType(str, Enum):
+    AUTHORIZATION_CODE = "authorization_code"
+    CLIENT_CREDENTIALS = "client_credentials"
+    REFRESH_TOKEN = "refresh_token"
+    DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code"
+```
+
+**OAuth 2.0 Scopes:**
+```python
+class OAuth2Scope(str, Enum):
+    # OpenID Connect scopes
+    OPENID = "openid"
+    PROFILE = "profile"
+    EMAIL = "email"
+    OFFLINE_ACCESS = "offline_access"
+
+    # Agent Village scopes
+    GOALS_READ = "goals:read"
+    GOALS_WRITE = "goals:write"
+    AGENTS_READ = "agents:read"
+    AGENTS_WRITE = "agents:write"
+    AGENTS_EXECUTE = "agents:execute"
+    ADMIN = "admin"
+```
+
+**OAuth 2.0 Configuration:**
+```python
+from src.oauth import (
+    OAuth2Service,
+    OAuth2Config,
+    OAuth2Middleware,
+    OAuth2MiddlewareConfig,
+    GrantType,
+    ClientType,
+    OAuth2Scope,
+    create_oauth_routes,
+    create_discovery_routes,
+    require_oauth,
+    require_scope,
+)
+
+# 1. Initialize OAuth service
+oauth_service = OAuth2Service(
+    config=OAuth2Config(
+        issuer="https://api.example.com",
+        jwt_secret="your-secret-key",
+    )
+)
+
+# 2. Add OAuth middleware
+app.add_middleware(
+    OAuth2Middleware,
+    oauth_service=oauth_service,
+    config=OAuth2MiddlewareConfig(
+        require_auth_by_default=True,
+        exclude_paths=["/health", "/docs", "/oauth/"],
+    ),
+)
+
+# 3. Include OAuth routes
+app.include_router(create_oauth_routes(oauth_service))
+app.include_router(create_discovery_routes(oauth_service))
+
+# 4. Register a client
+client, secret = await oauth_service.register_client(
+    client_name="My Application",
+    redirect_uris=["https://myapp.com/callback"],
+    allowed_scopes=["openid", "profile", "goals:read"],
+)
+
+# 5. Protect endpoints with scope requirements
+@app.get("/api/goals")
+@require_scope("goals:read")
+async def list_goals(request: Request):
+    user_id = request.state.oauth_user_id
+    return {"goals": [...]}
+```
+
+**OAuth 2.0 Endpoints:**
+```
++-------------------------------------------------------------------------------+
+|                          OAuth 2.0 Endpoints                                   |
++-------------------------------------------------------------------------------+
+|  GET  /oauth/authorize              | Authorization endpoint                  |
+|  POST /oauth/token                  | Token endpoint                          |
+|  POST /oauth/revoke                 | Token revocation                        |
+|  POST /oauth/introspect             | Token introspection                     |
+|  GET  /oauth/userinfo               | OpenID Connect UserInfo                 |
+|  GET  /.well-known/openid-config    | OIDC Discovery document                 |
+|  GET  /.well-known/jwks.json        | JSON Web Key Set                        |
++-------------------------------------------------------------------------------+
+```
+
+**OAuth 2.0 Tests:**
+```
+OAuth 2.0 Tests (tests/test_oauth.py):
+======================================================================
+  Client Model Tests (7 tests)
+  [PASS] test_generate_confidential_client
+  [PASS] test_generate_public_client
+  [PASS] test_verify_secret
+  [PASS] test_redirect_uri_validation
+  [PASS] test_scope_validation
+  [PASS] test_grant_type_validation
+  [PASS] test_rotate_secret
+
+  Authorization Code Tests (4 tests)
+  [PASS] test_generate_code
+  [PASS] test_code_expiration
+  [PASS] test_pkce_s256_verification
+  [PASS] test_pkce_plain_verification
+
+  Token Model Tests (6 tests)
+  [PASS] test_generate_access_token
+  [PASS] test_generate_refresh_token
+  [PASS] test_token_hash_verification
+  [PASS] test_token_expiration
+  [PASS] test_token_revocation
+  [PASS] test_scope_check
+
+  ID Token Tests (2 tests)
+  [PASS] test_create_id_token
+  [PASS] test_id_token_to_dict
+
+  Consent Tests (3 tests)
+  [PASS] test_create_consent
+  [PASS] test_consent_expiration
+  [PASS] test_consent_revocation
+
+  Device Code Tests (2 tests)
+  [PASS] test_generate_device_code
+  [PASS] test_device_code_authorization
+
+  Service Tests (12 tests)
+  [PASS] test_register_client
+  [PASS] test_authenticate_client
+  [PASS] test_create_authorization_code
+  [PASS] test_exchange_authorization_code
+  [PASS] test_exchange_code_with_pkce
+  [PASS] test_client_credentials_grant
+  [PASS] test_refresh_token_grant
+  [PASS] test_validate_access_token
+  [PASS] test_revoke_token
+  [PASS] test_introspect_token
+  [PASS] test_user_consent
+  [PASS] test_openid_configuration
+
+  Store Tests (6 tests)
+  [PASS] test_save_and_get_client
+  [PASS] test_list_clients_by_owner
+  [PASS] test_delete_client
+  [PASS] test_save_and_get_token
+  [PASS] test_get_token_by_plaintext
+  [PASS] test_revoke_tokens_by_user
+
+  Middleware Tests (4 tests)
+  [PASS] test_excluded_path
+  [PASS] test_missing_auth_header
+  [PASS] test_valid_token
+  [PASS] test_openid_configuration
+
+  Route Tests (4 tests)
+  [PASS] test_token_endpoint_client_credentials
+  [PASS] test_token_endpoint_basic_auth
+  [PASS] test_revoke_endpoint
+  [PASS] test_introspect_endpoint
+
+  Decorator Tests (2 tests)
+  [PASS] test_require_oauth_decorator
+  [PASS] test_require_scope_decorator
+
+  Integration Tests (3 tests)
+  [PASS] test_full_authorization_code_flow
+  [PASS] test_pkce_flow
+  [PASS] test_device_code_flow
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 55/55 OAuth tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -3887,10 +4092,12 @@ OVERALL: PASSED - 58/58 API Key tests passed
 - [x] Role-based access control (RBAC)
 - [x] Multi-factor authentication (MFA)
 - [x] API key management
+- [x] OAuth 2.0 / OpenID Connect
 
 #### 📋 Planned
 
-- [ ] OAuth 2.0 / OpenID Connect
+- [ ] Session management
+- [ ] Webhook system
 
 ---
 

@@ -2882,6 +2882,194 @@ async def get_current_key(request: Request):
 
 ---
 
+## OAuth 2.0 / OpenID Connect
+
+### OAuth 2.0 Architecture
+
+```
++-------------------------------------------------------------------------------+
+|                         OAuth 2.0 / OIDC System                                |
++-------------------------------------------------------------------------------+
+|                                                                               |
+|   +-------------------------------------------------------------------+       |
+|   |                        Grant Types                                 |       |
+|   |  +-------------------+  +-------------------+  +----------------+  |       |
+|   |  | Authorization     |  | Client            |  | Refresh        |  |       |
+|   |  | Code + PKCE       |  | Credentials       |  | Token          |  |       |
+|   |  +-------------------+  +-------------------+  +----------------+  |       |
+|   |  | Device Code       |  | Password (legacy) |                      |       |
+|   |  +-------------------+  +-------------------+                      |       |
+|   +-------------------------------------------------------------------+       |
+|                                                                               |
+|   +-------------------------------------------------------------------+       |
+|   |                        Token Types                                 |       |
+|   |  +-------------------+  +-------------------+  +----------------+  |       |
+|   |  | Access Token      |  | Refresh Token     |  | ID Token       |  |       |
+|   |  | (Bearer)          |  | (Rotation)        |  | (JWT/OIDC)     |  |       |
+|   |  +-------------------+  +-------------------+  +----------------+  |       |
+|   +-------------------------------------------------------------------+       |
+|                                                                               |
+|   +-------------------------------------------------------------------+       |
+|   |                      OAuth Components                              |       |
+|   |  +------------------------+  +----------------------------------+  |       |
+|   |  | OAuth2Service          |  | OAuth2Middleware                 |  |       |
+|   |  | - register_client      |  | - Token validation               |  |       |
+|   |  | - authenticate_client  |  | - Scope checking                 |  |       |
+|   |  | - create_auth_code     |  | - Request state injection        |  |       |
+|   |  | - exchange_code        |  +----------------------------------+  |       |
+|   |  | - refresh_token        |                                       |       |
+|   |  | - introspect_token     |                                       |       |
+|   |  | - revoke_token         |                                       |       |
+|   |  +------------------------+                                       |       |
+|   +-------------------------------------------------------------------+       |
+|                                                                               |
++-------------------------------------------------------------------------------+
+```
+
+### Authorization Code Flow with PKCE
+
+```
++-------------------------------------------------------------------------------+
+|                     Authorization Code Flow with PKCE                          |
++-------------------------------------------------------------------------------+
+|                                                                               |
+|   Client                    Authorization Server              Resource Server |
+|     |                              |                                 |        |
+|     |  1. Generate PKCE            |                                 |        |
+|     |     code_verifier            |                                 |        |
+|     |     code_challenge           |                                 |        |
+|     |                              |                                 |        |
+|     |  2. Authorization Request    |                                 |        |
+|     |----------------------------->|                                 |        |
+|     |  (client_id, redirect_uri,   |                                 |        |
+|     |   scope, code_challenge)     |                                 |        |
+|     |                              |                                 |        |
+|     |  3. User Authentication      |                                 |        |
+|     |<-----------------------------|                                 |        |
+|     |                              |                                 |        |
+|     |  4. Authorization Code       |                                 |        |
+|     |<-----------------------------|                                 |        |
+|     |                              |                                 |        |
+|     |  5. Token Request            |                                 |        |
+|     |----------------------------->|                                 |        |
+|     |  (code, code_verifier)       |                                 |        |
+|     |                              |                                 |        |
+|     |  6. Access Token + ID Token  |                                 |        |
+|     |<-----------------------------|                                 |        |
+|     |                              |                                 |        |
+|     |  7. API Request              |                                 |        |
+|     |-------------------------------------------------->|        |
+|     |  (Bearer token)              |                                 |        |
+|     |                              |                                 |        |
+|     |  8. Protected Resource       |                                 |        |
+|     |<--------------------------------------------------|        |
+|                                                                               |
++-------------------------------------------------------------------------------+
+```
+
+### Using OAuth 2.0
+
+```python
+from src.oauth import (
+    OAuth2Service,
+    OAuth2Config,
+    OAuth2Middleware,
+    OAuth2MiddlewareConfig,
+    GrantType,
+    ClientType,
+    OAuth2Scope,
+    create_oauth_routes,
+    create_discovery_routes,
+    create_client_management_routes,
+    require_oauth,
+    require_scope,
+)
+
+# 1. Initialize OAuth service with configuration
+oauth_service = OAuth2Service(
+    config=OAuth2Config(
+        issuer="https://api.example.com",
+        jwt_secret="your-secure-jwt-secret",
+        access_token_ttl=3600,      # 1 hour
+        refresh_token_ttl=2592000,  # 30 days
+    )
+)
+
+# 2. Add OAuth middleware to FastAPI
+app.add_middleware(
+    OAuth2Middleware,
+    oauth_service=oauth_service,
+    config=OAuth2MiddlewareConfig(
+        require_auth_by_default=True,
+        exclude_paths=["/health", "/docs", "/oauth/", "/.well-known/"],
+    ),
+)
+
+# 3. Include OAuth routes
+app.include_router(create_oauth_routes(oauth_service))
+app.include_router(create_discovery_routes(oauth_service))
+app.include_router(create_client_management_routes(oauth_service))
+
+# 4. Register a confidential client (server-side app)
+client, secret = await oauth_service.register_client(
+    client_name="My Web Application",
+    redirect_uris=["https://myapp.com/callback"],
+    client_type=ClientType.CONFIDENTIAL,
+    allowed_scopes=["openid", "profile", "email", "goals:read", "goals:write"],
+    grant_types=[GrantType.AUTHORIZATION_CODE, GrantType.REFRESH_TOKEN],
+)
+
+# 5. Register a public client (SPA/mobile)
+mobile_client, _ = await oauth_service.register_client(
+    client_name="My Mobile App",
+    redirect_uris=["myapp://callback"],
+    client_type=ClientType.PUBLIC,
+    require_pkce=True,
+    allowed_scopes=["openid", "profile", "goals:read"],
+)
+
+# 6. Exchange authorization code for tokens
+token_response = await oauth_service.exchange_authorization_code(
+    code=auth_code,
+    client_id=client.client_id,
+    client_secret=secret,
+    redirect_uri="https://myapp.com/callback",
+    code_verifier=pkce_verifier,  # For PKCE flow
+)
+
+# 7. Validate access token
+token_record = await oauth_service.validate_access_token(
+    access_token,
+    required_scopes=["goals:read"],
+)
+
+# 8. Refresh tokens
+new_tokens = await oauth_service.refresh_token_grant(
+    refresh_token=refresh_token,
+    client_id=client.client_id,
+    client_secret=secret,
+)
+
+# 9. Protect endpoints with decorators
+@app.get("/api/goals")
+@require_scope("goals:read")
+async def list_goals(request: Request):
+    user_id = request.state.oauth_user_id
+    return {"goals": [...]}
+
+# 10. Access token info in request
+@app.get("/api/profile")
+@require_oauth(scopes=["openid", "profile"])
+async def get_profile(request: Request):
+    return {
+        "user_id": request.state.oauth_user_id,
+        "client_id": request.state.oauth_client_id,
+        "scopes": request.state.oauth_scopes,
+    }
+```
+
+---
+
 <p align="center">
   <strong>Agent Village - Intelligent Multi-Agent Orchestration</strong><br>
   <em>Achieve complex goals through coordinated AI collaboration</em>
