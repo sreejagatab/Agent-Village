@@ -3745,6 +3745,206 @@ print(f"Sent: {stats.total_sent}, Delivered: {stats.total_delivered}")
 
 ---
 
+## Scheduled Tasks System
+
+### Scheduler Architecture
+
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          Scheduled Tasks System                                ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║  ┌─────────────────────────────────────────────────────────────────────────┐  ║
+║  │                         Schedule Types                                    │  ║
+║  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │  ║
+║  │  │  ONCE    │ │ INTERVAL │ │  DAILY   │ │ WEEKLY   │ │ MONTHLY  │      │  ║
+║  │  │ One-time │ │ Periodic │ │ Daily at │ │ Weekday  │ │ Monthly  │      │  ║
+║  │  │   task   │ │  N secs  │ │   time   │ │   time   │ │   day    │      │  ║
+║  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘      │  ║
+║  │              ┌──────────┐                                               │  ║
+║  │              │   CRON   │  Full cron expression support                 │  ║
+║  │              │ * * * * *│  minute hour day month weekday                │  ║
+║  │              └──────────┘                                               │  ║
+║  └─────────────────────────────────────────────────────────────────────────┘  ║
+║                                                                                ║
+║  ┌─────────────────────────────────────────────────────────────────────────┐  ║
+║  │                         Task Execution Types                             │  ║
+║  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │  ║
+║  │  │ FUNCTION │ │   HTTP   │ │   GOAL   │ │ COMMAND  │ │  NOTIFY  │      │  ║
+║  │  │ Python   │ │ Webhook  │ │ Agent    │ │  Shell   │ │ Send     │      │  ║
+║  │  │ callable │ │ callback │ │ goal     │ │ command  │ │ notif.   │      │  ║
+║  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘      │  ║
+║  └─────────────────────────────────────────────────────────────────────────┘  ║
+║                                                                                ║
+║  ┌─────────────────────────────────────────────────────────────────────────┐  ║
+║  │                      Scheduler Service Flow                              │  ║
+║  │                                                                          │  ║
+║  │      ┌───────────┐   ┌────────────┐   ┌───────────┐   ┌──────────┐    │  ║
+║  │      │  Create   │──►│  Schedule  │──►│  Execute  │──►│  Track   │    │  ║
+║  │      │   Task    │   │ Next Run   │   │   Task    │   │  Result  │    │  ║
+║  │      └───────────┘   └────────────┘   └───────────┘   └──────────┘    │  ║
+║  │            │                                                 │         │  ║
+║  │            └──────────────── Retry on Failure ◄──────────────┘         │  ║
+║  └─────────────────────────────────────────────────────────────────────────┘  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
+### Cron Expression Support
+
+```
+Standard 5-field cron expressions:
+  minute hour day-of-month month day-of-week
+
+Examples:
+  * * * * *       Every minute
+  0 * * * *       Every hour
+  0 0 * * *       Every day at midnight
+  0 0 * * 0       Every Sunday at midnight
+  */15 * * * *    Every 15 minutes
+  0 9-17 * * 1-5  Every hour 9am-5pm, Monday-Friday
+  0 0 1 * *       First day of every month
+
+Aliases:
+  @yearly         0 0 1 1 *
+  @monthly        0 0 1 * *
+  @weekly         0 0 * * 0
+  @daily          0 0 * * *
+  @hourly         0 * * * *
+
+Named values:
+  Months:  jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec
+  Days:    sun, mon, tue, wed, thu, fri, sat
+```
+
+### Scheduler Components
+
+| Component | Purpose | Implementation |
+|-----------|---------|----------------|
+| **SchedulerStore** | In-memory task storage with indexes | `src/scheduler/service.py` |
+| **SchedulerService** | Task management and execution | `src/scheduler/service.py` |
+| **CronExpression** | Cron parsing and next-run calculation | `src/scheduler/cron.py` |
+| **API Routes** | REST endpoints for task management | `src/scheduler/middleware.py` |
+
+### Task States
+
+```
+  ┌─────────┐
+  │ PENDING │──────────────────────────────┐
+  └────┬────┘                              │
+       │ activate                          │
+       v                                   │
+  ┌─────────┐     pause      ┌─────────┐  │
+  │ ACTIVE  │ ──────────────►│ PAUSED  │  │
+  └────┬────┘                └────┬────┘  │
+       │                          │       │
+       │ execute                  │ resume│
+       v                          │       │
+  ┌─────────┐     ◄───────────────┘       │
+  │ RUNNING │                             │
+  └────┬────┘                             │
+       │                                  │
+       ├───── complete ────► ┌───────────┐│
+       │                     │ COMPLETED ││
+       └───── fail ────────► └───────────┘│
+                             ┌───────────┐│
+                             │  FAILED   │◄┘
+                             └───────────┘
+```
+
+### REST API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/scheduler/stats` | Get scheduler statistics |
+| `POST` | `/scheduler/tasks` | Create scheduled task |
+| `GET` | `/scheduler/tasks` | List tasks with filters |
+| `GET` | `/scheduler/tasks/{id}` | Get task by ID |
+| `PATCH` | `/scheduler/tasks/{id}` | Update task |
+| `DELETE` | `/scheduler/tasks/{id}` | Delete task |
+| `POST` | `/scheduler/tasks/{id}/pause` | Pause task |
+| `POST` | `/scheduler/tasks/{id}/resume` | Resume task |
+| `POST` | `/scheduler/tasks/{id}/trigger` | Trigger immediate execution |
+| `GET` | `/scheduler/tasks/{id}/executions` | Get execution history |
+| `GET` | `/scheduler/due` | Get due tasks |
+| `POST` | `/scheduler/start` | Start scheduler loop |
+| `POST` | `/scheduler/stop` | Stop scheduler loop |
+
+### Usage Examples
+
+```python
+from src.scheduler import (
+    SchedulerService,
+    ScheduledTask,
+    ScheduleType,
+    TaskPayload,
+    TaskType,
+    IntervalSchedule,
+    DailySchedule,
+    CronSchedule,
+)
+
+# 1. Initialize scheduler
+scheduler = SchedulerService()
+await scheduler.start()
+
+# 2. Create interval task (every 5 minutes)
+task = ScheduledTask(
+    name="Health Check",
+    schedule_type=ScheduleType.INTERVAL,
+    schedule_config=IntervalSchedule(minutes=5),
+    payload=TaskPayload(
+        task_type=TaskType.HTTP,
+        http_url="https://api.example.com/health",
+    ),
+)
+await scheduler.create_task(task)
+
+# 3. Create daily task
+daily_task = ScheduledTask.create_daily(
+    name="Daily Report",
+    schedule=DailySchedule(hour=9, minute=0),
+    payload=TaskPayload(
+        task_type=TaskType.FUNCTION,
+        function_name="generate_daily_report",
+    ),
+)
+await scheduler.create_task(daily_task)
+
+# 4. Create cron-based task
+cron_task = ScheduledTask.create_cron(
+    name="Cleanup Job",
+    cron_expression="0 2 * * *",  # 2 AM daily
+    payload=TaskPayload(
+        task_type=TaskType.COMMAND,
+        command="cleanup.sh",
+    ),
+)
+await scheduler.create_task(cron_task)
+
+# 5. Register custom handler
+async def my_handler(task: ScheduledTask):
+    print(f"Executing {task.name}")
+    return {"status": "completed"}
+
+scheduler.register_handler(TaskType.FUNCTION, my_handler)
+
+# 6. Manage tasks
+await scheduler.pause_task(task.task_id)
+await scheduler.resume_task(task.task_id)
+await scheduler.trigger_task(task.task_id)  # Manual trigger
+
+# 7. Get statistics
+stats = scheduler.get_stats()
+print(f"Active: {stats.active_tasks}, Executions: {stats.total_executions}")
+
+# 8. Get execution history
+executions = await scheduler.get_executions(task.task_id, limit=10)
+for exec in executions:
+    print(f"{exec.execution_id}: {exec.status}")
+```
+
+---
+
 <p align="center">
   <strong>Agent Village - Intelligent Multi-Agent Orchestration</strong><br>
   <em>Achieve complex goals through coordinated AI collaboration</em>

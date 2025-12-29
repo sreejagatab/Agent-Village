@@ -1,6 +1,6 @@
 [project]
 name = "agent-village"
-version = "0.1.17"
+version = "0.1.18"
 description = "Production-grade multi-agent system with governed orchestration"
 readme = "README.md"
 requires-python = ">=3.11"
