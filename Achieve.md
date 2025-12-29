@@ -2685,6 +2685,203 @@ status = await mfa_service.get_status(user_id)
 
 ---
 
+## API Key Management
+
+### API Key Architecture
+
+```
++-------------------------------------------------------------------------------+
+|                            API Key System                                      |
++-------------------------------------------------------------------------------+
+|   +-----------------------------------------------------------------------+   |
+|   |                         API Key Models                                 |   |
+|   |  +------------------+  +------------------+  +--------------------+   |   |
+|   |  | KeyStatus        |  | KeyType          |  | APIScope           |   |   |
+|   |  | - active         |  | - personal       |  | - read:goals       |   |   |
+|   |  | - expired        |  | - service        |  | - write:goals      |   |   |
+|   |  | - revoked        |  | - tenant         |  | - execute:agents   |   |   |
+|   |  | - suspended      |  | - admin          |  | - admin:full       |   |   |
+|   |  +------------------+  +------------------+  +--------------------+   |   |
+|   +-----------------------------------------------------------------------+   |
+|                                                                               |
+|   +-----------------------------------------------------------------------+   |
+|   |                        API Key Components                              |   |
+|   |  +------------------------+  +-----------------------------------+    |   |
+|   |  | RateLimitConfig        |  | IPRestriction                     |    |   |
+|   |  | - per minute: 60       |  | - allowed_ips: []                 |    |   |
+|   |  | - per hour: 1000       |  | - allowed_cidrs: []               |    |   |
+|   |  | - per day: 10000       |  | - blocked_ips: []                 |    |   |
+|   |  | - burst: 100           |  |                                   |    |   |
+|   |  +------------------------+  +-----------------------------------+    |   |
+|   +-----------------------------------------------------------------------+   |
+|                                                                               |
+|   +-----------------------------------------------------------------------+   |
+|   |                         API Key Service                                |   |
+|   |  +------------------+  +------------------+  +-------------------+    |   |
+|   |  | APIKeyStore      |  | APIKeyService    |  | KeyValidation     |    |   |
+|   |  | - save           |  | - create_key     |  | - check format    |    |   |
+|   |  | - get            |  | - validate_key   |  | - verify hash     |    |   |
+|   |  | - list           |  | - rotate_key     |  | - check scopes    |    |   |
+|   |  | - delete         |  | - revoke_key     |  | - check rate      |    |   |
+|   |  +------------------+  +------------------+  +-------------------+    |   |
+|   +-----------------------------------------------------------------------+   |
+|                                                                               |
+|   +-----------------------------------------------------------------------+   |
+|   |    API Key Middleware     |     |    API Routes                 |     |   |
+|   |  +---------------------+  |     |  +---------------------------+|     |   |
+|   |  | - Extract key       |  |     |  | POST   /api-keys          ||     |   |
+|   |  | - Validate key      |  |     |  | GET    /api-keys          ||     |   |
+|   |  | - Check rate limits |  |     |  | GET    /api-keys/{id}     ||     |   |
+|   |  | - Check IP          |  |     |  | POST   .../rotate         ||     |   |
+|   |  | - Check scopes      |  |     |  | POST   .../revoke         ||     |   |
+|   |  +---------------------+  |     |  | DELETE /api-keys/{id}     ||     |   |
+|   +-----------------------------------------------------------------------+   |
++-------------------------------------------------------------------------------+
+```
+
+### API Key Format
+
+```
++-------------------------------------------------------------------------------+
+|                           API Key Format                                       |
++-------------------------------------------------------------------------------+
+|                                                                               |
+|   Format:  {prefix}_{key_id}_{secret}                                         |
+|                                                                               |
+|   Example: ak_abc123def456_xYz789ABCdefGHIjklMNOpqrSTUvwxYZ0123456            |
+|            ^^  ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^             |
+|            |   |            |                                                 |
+|            |   |            +-- Secret (43 chars, URL-safe base64)            |
+|            |   +-- Key ID (12 hex chars)                                      |
+|            +-- Prefix (ak = API Key)                                          |
+|                                                                               |
+|   Storage: Only the SHA-256 hash is stored, never the plaintext               |
+|                                                                               |
++-------------------------------------------------------------------------------+
+```
+
+### Rate Limiting
+
+```
++-------------------------------------------------------------------------------+
+|                          Rate Limiting System                                  |
++-------------------------------------------------------------------------------+
+|                                                                               |
+|   Time Windows:                                                               |
+|   +------------------+------------------+------------------+                  |
+|   | Per Minute       | Per Hour         | Per Day          |                  |
+|   | Default: 60      | Default: 1000    | Default: 10000   |                  |
+|   +------------------+------------------+------------------+                  |
+|                                                                               |
+|   Rate Limit Check Flow:                                                      |
+|   +-------+    +--------+    +--------+    +--------+    +--------+          |
+|   |Request| -> | Check  | -> | Check  | -> | Check  | -> | Allow  |          |
+|   |       |    | Minute |    | Hour   |    | Day    |    |        |          |
+|   +-------+    +--------+    +--------+    +--------+    +--------+          |
+|                    |              |             |                             |
+|                    v              v             v                             |
+|               [Exceeded]    [Exceeded]    [Exceeded]                         |
+|                    |              |             |                             |
+|                    +-------+------+------+------+                            |
+|                            v                                                  |
+|                      +----------+                                             |
+|                      | 429 Too  |                                             |
+|                      | Many     |                                             |
+|                      | Requests |                                             |
+|                      +----------+                                             |
+|                                                                               |
++-------------------------------------------------------------------------------+
+```
+
+### Using API Keys
+
+```python
+from src.apikeys import (
+    APIKeyService,
+    APIKeyMiddleware,
+    APIKeyMiddlewareConfig,
+    APIScope,
+    RateLimitConfig,
+    IPRestriction,
+    require_api_key,
+    require_scope,
+    create_api_key_routes,
+)
+
+# 1. Initialize API key service
+api_key_service = APIKeyService()
+
+# 2. Add API key middleware to FastAPI
+app.add_middleware(
+    APIKeyMiddleware,
+    api_key_service=api_key_service,
+    config=APIKeyMiddlewareConfig(
+        require_api_key=True,
+        exclude_paths=["/health", "/docs", "/openapi.json"],
+    ),
+)
+
+# 3. Include API key management routes
+app.include_router(create_api_key_routes(api_key_service))
+
+# 4. Create an API key programmatically
+api_key, plaintext = await api_key_service.create_key(
+    owner_id="user-123",
+    name="Production Key",
+    scopes=[APIScope.READ_GOALS, APIScope.WRITE_GOALS],
+    expires_in_days=365,
+    rate_limit=RateLimitConfig(
+        requests_per_minute=100,
+        requests_per_hour=5000,
+        requests_per_day=50000,
+    ),
+    ip_restriction=IPRestriction(
+        allowed_cidrs=["192.168.0.0/16", "10.0.0.0/8"],
+    ),
+)
+
+# 5. Validate an API key
+result = await api_key_service.validate_key(
+    plaintext_key,
+    required_scopes=[APIScope.READ_GOALS],
+    client_ip="192.168.1.100",
+)
+if result.valid:
+    print(f"Key belongs to: {result.key.owner_id}")
+else:
+    print(f"Invalid: {result.error_code}")
+
+# 6. Rotate a key (creates new, revokes old)
+new_key, new_plaintext = await api_key_service.rotate_key(
+    key_id="ak_abc123def456",
+    rotated_by="user-123",
+)
+
+# 7. Protect endpoints with decorators
+@app.get("/goals")
+@require_scope(APIScope.READ_GOALS)
+async def list_goals(request: Request):
+    return {"goals": [...]}
+
+# 8. Multiple scopes required
+@app.post("/goals/{goal_id}/execute")
+@require_scope(APIScope.READ_GOALS, APIScope.EXECUTE_GOALS)
+async def execute_goal(request: Request, goal_id: str):
+    return {"status": "executing"}
+
+# 9. Access key info in request
+@app.get("/me")
+@require_api_key()
+async def get_current_key(request: Request):
+    return {
+        "key_id": request.state.api_key_id,
+        "owner": request.state.api_key_owner,
+        "scopes": request.state.api_key_scopes,
+    }
+```
+
+---
+
 <p align="center">
   <strong>Agent Village - Intelligent Multi-Agent Orchestration</strong><br>
   <em>Achieve complex goals through coordinated AI collaboration</em>

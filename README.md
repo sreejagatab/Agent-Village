@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  <img src="https://img.shields.io/badge/Version-0.1.12-orange.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.1.13-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Status-Alpha-red.svg" alt="Status: Alpha">
 </p>
 
@@ -1919,10 +1919,16 @@ agent-village/
 │   │   ├── service.py          # RBAC service layer
 │   │   └── middleware.py       # FastAPI middleware and decorators
 │   │
-│   └── mfa/                     # Multi-Factor Authentication
+│   ├── mfa/                     # Multi-Factor Authentication
+│   │   ├── __init__.py
+│   │   ├── models.py           # TOTP, SMS, backup codes
+│   │   ├── service.py          # MFA service layer
+│   │   └── middleware.py       # FastAPI middleware and decorators
+│   │
+│   └── apikeys/                 # API Key Management
 │       ├── __init__.py
-│       ├── models.py           # TOTP, SMS, backup codes
-│       ├── service.py          # MFA service layer
+│       ├── models.py           # Key models, scopes, rate limits
+│       ├── service.py          # API key service layer
 │       └── middleware.py       # FastAPI middleware and decorators
 │
 ├── tests/                       # Test suite
@@ -1944,6 +1950,7 @@ agent-village/
 │   ├── test_sso.py              # SSO integration tests
 │   ├── test_rbac.py             # RBAC tests
 │   ├── test_mfa.py              # MFA tests
+│   ├── test_apikeys.py          # API key tests
 │   ├── test_tools.py
 │   └── test_websocket.py
 │
@@ -3659,6 +3666,210 @@ OVERALL: PASSED - 64/64 MFA tests passed
 ======================================================================
 ```
 
+#### 🆕 New Features (v0.1.13) - API Key Management
+
+**28. API Key System**
+
+Full **API Key Management** (`src/apikeys/`) for API authentication:
+
+- Key generation with secure random secrets
+- Scope-based permissions (20+ scopes)
+- Rate limiting (per minute/hour/day)
+- IP restriction with CIDR support
+- Key rotation and revocation
+- Usage tracking and statistics
+- Tenant-scoped keys
+
+**API Key Format:**
+```
+{prefix}_{key_id}_{secret}
+Example: ak_abc123def456_xYz789...
+```
+
+**Available Scopes:**
+```python
+class APIScope(str, Enum):
+    # Read scopes
+    READ_GOALS = "read:goals"
+    READ_AGENTS = "read:agents"
+    READ_MEMORY = "read:memory"
+    READ_TOOLS = "read:tools"
+    READ_USERS = "read:users"
+    READ_METRICS = "read:metrics"
+
+    # Write scopes
+    WRITE_GOALS = "write:goals"
+    WRITE_AGENTS = "write:agents"
+    WRITE_MEMORY = "write:memory"
+    WRITE_TOOLS = "write:tools"
+    WRITE_USERS = "write:users"
+
+    # Execute scopes
+    EXECUTE_GOALS = "execute:goals"
+    EXECUTE_AGENTS = "execute:agents"
+    EXECUTE_TOOLS = "execute:tools"
+
+    # Admin scopes
+    ADMIN_FULL = "admin:full"
+    ALL = "*"
+```
+
+**API Key Configuration:**
+```python
+from src.apikeys import (
+    APIKeyService,
+    APIKeyMiddleware,
+    APIKeyMiddlewareConfig,
+    APIScope,
+    RateLimitConfig,
+    IPRestriction,
+    require_api_key,
+    require_scope,
+    create_api_key_routes,
+)
+
+# 1. Initialize API key service
+api_key_service = APIKeyService()
+
+# 2. Add API key middleware
+app.add_middleware(
+    APIKeyMiddleware,
+    api_key_service=api_key_service,
+    config=APIKeyMiddlewareConfig(
+        require_api_key=True,
+        exclude_paths=["/health", "/docs"],
+    ),
+)
+
+# 3. Include API key management routes
+app.include_router(create_api_key_routes(api_key_service))
+
+# 4. Create an API key
+api_key, plaintext = await api_key_service.create_key(
+    owner_id="user-123",
+    name="Production Key",
+    scopes=[APIScope.READ_GOALS, APIScope.WRITE_GOALS],
+    expires_in_days=365,
+    rate_limit=RateLimitConfig(
+        requests_per_minute=100,
+        requests_per_hour=5000,
+    ),
+    ip_restriction=IPRestriction(
+        allowed_cidrs=["192.168.0.0/16"],
+    ),
+)
+
+# 5. Protect endpoints with scope requirements
+@app.get("/goals")
+@require_scope(APIScope.READ_GOALS)
+async def list_goals(request: Request):
+    return {"goals": [...]}
+```
+
+**API Key Endpoints:**
+```
++-------------------------------------------------------------------------------+
+|                          API Key Endpoints                                     |
++-------------------------------------------------------------------------------+
+|  POST   /api-keys                | Create a new API key                       |
+|  GET    /api-keys                | List user's API keys                       |
+|  GET    /api-keys/{key_id}       | Get specific key details                   |
+|  POST   /api-keys/{key_id}/rotate| Rotate key (new key, old revoked)         |
+|  POST   /api-keys/{key_id}/revoke| Revoke a key                              |
+|  DELETE /api-keys/{key_id}       | Delete a key                               |
+|  PATCH  /api-keys/{key_id}/scopes| Update key scopes                         |
++-------------------------------------------------------------------------------+
+```
+
+**API Key Tests:**
+```
+API Key Tests (tests/test_apikeys.py):
+======================================================================
+  Model Tests (10 tests)
+  [PASS] test_generate_api_key
+  [PASS] test_key_hash_verification
+  [PASS] test_key_with_expiration
+  [PASS] test_expired_key
+  [PASS] test_key_scopes
+  [PASS] test_wildcard_scope
+  [PASS] test_admin_scope
+  [PASS] test_key_rotation
+  [PASS] test_key_revocation
+  [PASS] test_key_suspension
+
+  Format Validation Tests (4 tests)
+  [PASS] test_valid_key_format
+  [PASS] test_invalid_key_format
+  [PASS] test_parse_valid_key
+  [PASS] test_parse_invalid_key
+
+  Rate Limit Tests (3 tests)
+  [PASS] test_default_rate_limits
+  [PASS] test_custom_rate_limits
+  [PASS] test_to_dict
+
+  IP Restriction Tests (4 tests)
+  [PASS] test_no_restrictions
+  [PASS] test_allowed_ips
+  [PASS] test_blocked_ips
+  [PASS] test_cidr_ranges
+
+  Usage Stats Tests (2 tests)
+  [PASS] test_record_request
+  [PASS] test_rate_limit_check
+
+  Service Tests (15 tests)
+  [PASS] test_create_key
+  [PASS] test_create_key_with_scopes
+  [PASS] test_validate_key
+  [PASS] test_validate_invalid_key
+  [PASS] test_validate_key_with_scopes
+  [PASS] test_validate_revoked_key
+  [PASS] test_validate_expired_key
+  [PASS] test_rotate_key
+  [PASS] test_list_keys
+  [PASS] test_key_limit
+  [PASS] test_update_scopes
+  [PASS] test_update_rate_limit
+  [PASS] test_extend_expiration
+  [PASS] test_suspend_and_reactivate
+  [PASS] test_revoke_all_for_owner
+
+  Store Tests (3 tests)
+  [PASS] test_save_and_get_key
+  [PASS] test_list_keys_by_owner
+  [PASS] test_delete_key
+
+  Middleware Tests (5 tests)
+  [PASS] test_excluded_path
+  [PASS] test_missing_api_key
+  [PASS] test_valid_api_key
+  [PASS] test_invalid_api_key
+  [PASS] test_revoked_api_key
+
+  Decorator Tests (2 tests)
+  [PASS] test_require_api_key_decorator
+  [PASS] test_require_scope_decorator
+
+  API Routes Tests (6 tests)
+  [PASS] test_create_key
+  [PASS] test_list_keys
+  [PASS] test_get_key
+  [PASS] test_revoke_key
+  [PASS] test_rotate_key
+  [PASS] test_delete_key
+
+  Integration Tests (4 tests)
+  [PASS] test_full_key_lifecycle
+  [PASS] test_rate_limiting
+  [PASS] test_ip_restriction
+  [PASS] test_tenant_scoped_keys
+
+----------------------------------------------------------------------
+OVERALL: PASSED - 58/58 API Key tests passed
+======================================================================
+```
+
 #### ✅ Recently Completed
 
 - [x] Memory search API endpoint
@@ -3675,10 +3886,11 @@ OVERALL: PASSED - 64/64 MFA tests passed
 - [x] SSO integration
 - [x] Role-based access control (RBAC)
 - [x] Multi-factor authentication (MFA)
+- [x] API key management
 
 #### 📋 Planned
 
-- [ ] API key management
+- [ ] OAuth 2.0 / OpenID Connect
 
 ---
 
