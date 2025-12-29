@@ -3560,6 +3560,191 @@ def verify_webhook(payload: str, signature: str, timestamp: str, secret: str) ->
 
 ---
 
+## Notification System
+
+### Notification System Architecture
+
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         Notification System                                    ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║   ┌────────────────────────────────────────────────────────────────────┐       ║
+║   │                  Notification Channels                              │       ║
+║   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐  │       ║
+║   │  │    Email    │  │     SMS     │  │    Push     │  │  In-App   │  │       ║
+║   │  │  • SMTP     │  │  • Twilio   │  │  • FCM      │  │  • Store  │  │       ║
+║   │  │  • SendGrid │  │  • SNS      │  │  • APNS     │  │  • Query  │  │       ║
+║   │  │  • SES      │  │             │  │             │  │           │  │       ║
+║   │  └─────────────┘  └─────────────┘  └─────────────┘  └───────────┘  │       ║
+║   └────────────────────────────────────────────────────────────────────┘       ║
+║                                                                                ║
+║   ┌────────────────────────────────────────────────────────────────────┐       ║
+║   │                  Notification Service                               │       ║
+║   │  ┌─────────────────────────────────────────────────────────────┐   │       ║
+║   │  │ • send_notification() - Send via appropriate provider       │   │       ║
+║   │  │ • send_from_template() - Use template with variables        │   │       ║
+║   │  │ • send_bulk() - Batch send notifications                    │   │       ║
+║   │  │ • process_pending() - Background delivery                   │   │       ║
+║   │  └─────────────────────────────────────────────────────────────┘   │       ║
+║   └────────────────────────────────────────────────────────────────────┘       ║
+║                                                                                ║
+║   ┌────────────────────────────────────────────────────────────────────┐       ║
+║   │                  User Preferences                                   │       ║
+║   │  • Global enable/disable                                           │       ║
+║   │  • Per-channel preferences (email, sms, push, in_app)              │       ║
+║   │  • Per-category preferences (system, security, marketing)          │       ║
+║   │  • Quiet hours configuration                                       │       ║
+║   │  • Priority overrides (urgent bypasses preferences)                │       ║
+║   └────────────────────────────────────────────────────────────────────┘       ║
+║                                                                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
+### Notification Features
+
+| Feature | Description |
+|---------|-------------|
+| **Multi-Channel** | Email, SMS, Push, and In-App notifications |
+| **Templates** | Reusable templates with {{variable}} substitution |
+| **User Preferences** | Per-channel and per-category preferences |
+| **Quiet Hours** | Suppress notifications during configured hours |
+| **Priority Levels** | LOW, NORMAL, HIGH, URGENT (urgent bypasses preferences) |
+| **Rate Limiting** | Per-user hourly/daily limits |
+| **Retry Logic** | Configurable retries with attempt tracking |
+| **Device Registration** | Register/unregister push notification tokens |
+| **Background Processing** | Async delivery queue with background processor |
+| **Delivery Tracking** | Track delivery status, attempts, and responses |
+
+### Using Notifications
+
+```python
+from src.notifications import (
+    NotificationService,
+    NotificationStore,
+    NotificationConfig,
+    Notification,
+    NotificationContent,
+    NotificationRecipient,
+    NotificationType,
+    NotificationCategory,
+    NotificationPriority,
+    InAppProvider,
+    SMTPProvider,
+    ChannelConfig,
+    ChannelType,
+    create_notification_routes,
+    create_notification_admin_routes,
+)
+from fastapi import FastAPI
+
+app = FastAPI()
+
+# 1. Initialize the notification system
+config = NotificationConfig(
+    default_max_attempts=3,
+    max_notifications_per_user_per_hour=100,
+    max_notifications_per_user_per_day=500,
+)
+store = NotificationStore()
+notification_service = NotificationService(store, config)
+
+# 2. Register notification providers
+notification_service.register_provider(InAppProvider())
+notification_service.register_provider(
+    SMTPProvider(ChannelConfig(
+        channel_type=ChannelType.SMTP,
+        name="SMTP Email",
+        settings={
+            "host": "smtp.example.com",
+            "port": 587,
+            "username": "user",
+            "password": "pass",
+            "from_email": "noreply@example.com",
+        },
+    ))
+)
+
+# 3. Add routes
+app.include_router(
+    create_notification_routes(notification_service),
+    prefix="/api/notifications",
+    tags=["notifications"],
+)
+app.include_router(
+    create_notification_admin_routes(notification_service),
+    prefix="/api/admin/notifications",
+    tags=["notifications-admin"],
+)
+
+# 4. Send a notification
+notification = Notification.create_in_app(
+    recipient=NotificationRecipient(user_id="user123"),
+    title="Welcome!",
+    body="Thanks for joining Agent Village!",
+)
+await notification_service.send_notification(notification)
+
+# 5. Send email notification
+email = Notification.create_email(
+    recipient=NotificationRecipient(
+        user_id="user123",
+        email="user@example.com",
+    ),
+    subject="Password Reset",
+    body="Click the link to reset your password.",
+    html_body="<h1>Password Reset</h1><p>Click the link...</p>",
+    category=NotificationCategory.SECURITY,
+    priority=NotificationPriority.HIGH,
+)
+await notification_service.send_notification(email)
+
+# 6. Create and use templates
+template = await notification_service.create_template(
+    name="Welcome Email",
+    notification_type=NotificationType.EMAIL,
+    subject_template="Welcome to {{service}}, {{name}}!",
+    body_template="Hello {{name}}, thanks for joining {{service}}!",
+)
+
+notification = await notification_service.send_from_template(
+    template_id=template.template_id,
+    recipient=NotificationRecipient(
+        user_id="user123",
+        email="user@example.com",
+    ),
+    data={"name": "John", "service": "Agent Village"},
+)
+
+# 7. Manage user preferences
+preferences = await notification_service.get_preferences("user123")
+await notification_service.update_preferences(
+    "user123",
+    email="user@example.com",
+    phone="+1234567890",
+)
+
+# 8. Register device for push notifications
+await notification_service.register_device("user123", "fcm_token_xyz")
+
+# 9. Get user notifications
+result = await notification_service.get_user_notifications(
+    user_id="user123",
+    limit=20,
+)
+print(f"Unread: {result.unread_count}")
+
+# 10. Mark notifications as read
+await notification_service.mark_as_read(notification_id)
+await notification_service.mark_all_as_read("user123")
+
+# 11. Get statistics
+stats = await notification_service.get_stats(user_id="user123", days=30)
+print(f"Sent: {stats.total_sent}, Delivered: {stats.total_delivered}")
+```
+
+---
+
 <p align="center">
   <strong>Agent Village - Intelligent Multi-Agent Orchestration</strong><br>
   <em>Achieve complex goals through coordinated AI collaboration</em>
